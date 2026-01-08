@@ -68,6 +68,17 @@
             image-rendering: pixelated; /* Retro feel */
         }
 
+        #view-game.fullscreen-mode #game-playground {
+            height: 88vh;
+            max-height: none;
+            padding: 0.5rem;
+        }
+
+        #view-game.fullscreen-mode #game-canvas {
+            border-width: 0;
+            box-shadow: none;
+        }
+
         /* Memory Game Grid */
         .memory-grid {
             display: grid;
@@ -163,7 +174,7 @@
         </div>
 
         <!-- View: Game Container -->
-        <div id="view-game" class="hidden flex flex-col items-center w-full max-w-5xl mx-auto">
+        <div id="view-game" class="hidden flex flex-col items-center w-full max-w-none mx-auto">
             <!-- Game Header -->
             <div class="w-full flex flex-col md:flex-row justify-between items-center mb-6 glass-panel p-4 rounded-2xl shadow-lg border border-slate-700 gap-4">
                 <div class="flex items-center gap-4 w-full md:w-auto justify-between">
@@ -198,7 +209,7 @@
             </div>
 
             <!-- Game Area -->
-            <div id="game-playground" class="w-full flex justify-center items-center bg-slate-800/50 p-6 rounded-3xl border border-slate-700/50 min-h-[420px] h-[70vh] max-h-[900px] relative overflow-hidden">
+            <div id="game-playground" class="w-full flex justify-center items-center bg-slate-800/50 p-6 rounded-3xl border border-slate-700/50 min-h-[420px] h-[75vh] max-h-[980px] relative overflow-hidden">
                 
                 <!-- Dynamic Game Content injected here -->
                 <canvas id="game-canvas" width="400" height="400" class="hidden rounded shadow-lg max-w-full z-10"></canvas>
@@ -364,11 +375,30 @@
                 if (!canvas || !playground) return;
 
                 const rect = playground.getBoundingClientRect();
-                const targetSize = Math.min(rect.width - 32, rect.height - 32);
-                const size = Math.max(320, Math.floor(targetSize));
+                const padding = 8;
+                const pixelRatio = window.devicePixelRatio || 1;
+                const maxWidth = Math.max(320, Math.floor(rect.width - padding));
+                const maxHeight = Math.max(320, Math.floor(rect.height - padding));
+                const activeGame = app.activeGameId;
 
-                canvas.width = size;
-                canvas.height = size;
+                let width = maxWidth;
+                let height = maxHeight;
+
+                if (activeGame === 'snake') {
+                    const grid = games.snake.grid || 20;
+                    width = Math.floor(maxWidth / grid) * grid;
+                    height = Math.floor(maxHeight / grid) * grid;
+                }
+
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
+                canvas.width = Math.floor(width * pixelRatio);
+                canvas.height = Math.floor(height * pixelRatio);
+
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+                }
             },
 
             loadGame: (gameId) => {
@@ -472,9 +502,13 @@
 
                 if (document.fullscreenElement) {
                     button.innerHTML = '<i class="fa-solid fa-compress"></i> יציאה ממסך מלא';
+                    app.fullscreenTarget?.classList.add('fullscreen-mode');
                 } else {
                     button.innerHTML = '<i class="fa-solid fa-expand"></i> מסך מלא';
+                    app.fullscreenTarget?.classList.remove('fullscreen-mode');
                 }
+
+                app.resizeCanvas();
             },
 
             // ✨ AI Feature 1: Backstory Generator
@@ -535,14 +569,53 @@
                 player: {},
                 keys: {},
                 platforms: [],
+                movingPlatforms: [],
+                hazards: [],
                 diamonds: [],
                 enemies: [],
                 cameraX: 0,
                 gravity: 0.6,
                 friction: 0.8,
                 score: 0,
+                health: 3,
+                maxHealth: 3,
+                invulnerableUntil: 0,
                 gameOver: false,
                 lastPlatformX: 0,
+                levelIndex: 0,
+                levelLength: 2600,
+                backgroundOffset: 0,
+                effects: [],
+                lastCheckpointX: 0,
+                levels: [
+                    {
+                        name: 'חוף הזהב',
+                        sky: ['#38bdf8', '#7dd3fc'],
+                        mountains: '#2563eb',
+                        platform: '#854d0e',
+                        grass: '#22c55e',
+                        accent: '#fbbf24',
+                        fog: 'rgba(255,255,255,0.2)'
+                    },
+                    {
+                        name: 'ג׳ונגל אזמרגד',
+                        sky: ['#16a34a', '#86efac'],
+                        mountains: '#15803d',
+                        platform: '#365314',
+                        grass: '#4d7c0f',
+                        accent: '#a3e635',
+                        fog: 'rgba(16,185,129,0.2)'
+                    },
+                    {
+                        name: 'מצוקי הקריסטל',
+                        sky: ['#1e1b4b', '#312e81'],
+                        mountains: '#4338ca',
+                        platform: '#1f2937',
+                        grass: '#6366f1',
+                        accent: '#e879f9',
+                        fog: 'rgba(129,140,248,0.25)'
+                    }
+                ],
 
                 init: () => {
                     const self = games.adventure;
@@ -556,8 +629,17 @@
                     self.cameraX = 0;
                     self.keys = {};
                     self.platforms = [];
+                    self.movingPlatforms = [];
+                    self.hazards = [];
                     self.diamonds = [];
                     self.enemies = [];
+                    self.effects = [];
+                    self.levelIndex = 0;
+                    self.levelLength = 2600;
+                    self.lastCheckpointX = 0;
+                    self.health = self.maxHealth;
+                    self.invulnerableUntil = 0;
+                    self.tick = 0;
                     
                     // Player setup
                     self.player = {
@@ -569,12 +651,16 @@
                         velX: 0,
                         velY: 0,
                         jumping: false,
-                        grounded: false
+                        grounded: false,
+                        facing: 1,
+                        animFrame: 0,
+                        animTimer: 0
                     };
 
                     // Initial ground
                     self.generatePlatform(0, 350, 600); // Start platform
                     self.lastPlatformX = 600;
+                    self.generateCheckpoint(400, 310);
 
                     // Event Listeners
                     document.onkeydown = (e) => {
@@ -613,33 +699,70 @@
                 },
 
                 // Procedural Generation
+                getLevelTheme: () => {
+                    const self = games.adventure;
+                    return self.levels[self.levelIndex % self.levels.length];
+                },
+
                 generatePlatform: (x, y, w) => {
                     const self = games.adventure;
                     self.platforms.push({ x, y, width: w, height: 30 });
-                    
-                    // Add items randomly
-                    if (Math.random() > 0.3) {
+
+                    if (Math.random() > 0.35) {
                         self.diamonds.push({
                             x: x + Math.random() * (w - 30),
-                            y: y - 30,
+                            y: y - 34,
                             width: 20,
                             height: 20,
-                            collected: false
+                            collected: false,
+                            bonus: Math.random() > 0.8
                         });
                     }
 
-                    // Add enemy
-                    if (Math.random() > 0.6 && w > 100) {
+                    if (Math.random() > 0.7 && w > 120) {
                         self.enemies.push({
+                            type: 'patroller',
                             x: x + 40,
                             y: y - 24,
                             width: 24,
                             height: 24,
-                            speed: 1,
+                            speed: 1 + Math.random(),
                             minX: x,
                             maxX: x + w
                         });
                     }
+
+                    if (Math.random() > 0.72 && w > 160) {
+                        self.hazards.push({
+                            x: x + Math.random() * (w - 40),
+                            y: y - 12,
+                            width: 40,
+                            height: 12
+                        });
+                    }
+                },
+
+                generateMovingPlatform: (x, y, w) => {
+                    const self = games.adventure;
+                    self.movingPlatforms.push({
+                        x,
+                        y,
+                        width: w,
+                        height: 20,
+                        range: 80 + Math.random() * 120,
+                        speed: 0.6 + Math.random() * 0.6,
+                        offset: Math.random() * Math.PI * 2
+                    });
+                },
+
+                generateCheckpoint: (x, y) => {
+                    const self = games.adventure;
+                    self.effects.push({
+                        type: 'checkpoint',
+                        x,
+                        y,
+                        active: false
+                    });
                 },
 
                 spawnWorld: () => {
@@ -654,27 +777,99 @@
                         
                         const w = 80 + Math.random() * 200;
                         
-                        self.generatePlatform(self.lastPlatformX + gap, y, w);
+                        const nextX = self.lastPlatformX + gap;
+                        self.generatePlatform(nextX, y, w);
+
+                        if (Math.random() > 0.65) {
+                            self.generateMovingPlatform(nextX + 20, y - 80, 80);
+                        }
+
+                        if (Math.random() > 0.8) {
+                            self.enemies.push({
+                                type: 'flyer',
+                                x: nextX + Math.random() * w,
+                                y: y - 120,
+                                width: 20,
+                                height: 20,
+                                speed: 1.2 + Math.random()
+                            });
+                        }
+
+                        if (Math.random() > 0.78) {
+                            self.enemies.push({
+                                type: 'hopper',
+                                x: nextX + Math.random() * w,
+                                y: y - 24,
+                                width: 22,
+                                height: 22,
+                                speed: 1,
+                                hopTimer: 0
+                            });
+                        }
+
+                        if (Math.random() > 0.88) {
+                            self.generateCheckpoint(nextX + w - 40, y - 40);
+                        }
+
                         self.lastPlatformX += (gap + w);
                     }
 
                     // Clean up old objects to save memory
                     self.platforms = self.platforms.filter(p => p.x + p.width > self.cameraX - 100);
+                    self.movingPlatforms = self.movingPlatforms.filter(p => p.x + p.width > self.cameraX - 100);
+                    self.hazards = self.hazards.filter(h => h.x + h.width > self.cameraX - 100);
                     self.diamonds = self.diamonds.filter(d => d.x > self.cameraX - 100);
                     self.enemies = self.enemies.filter(e => e.x > self.cameraX - 100);
+                    self.effects = self.effects.filter(e => e.x > self.cameraX - 150);
+                },
+
+                addEffect: (type, x, y) => {
+                    const self = games.adventure;
+                    self.effects.push({
+                        type,
+                        x,
+                        y,
+                        createdAt: performance.now(),
+                        active: type === 'checkpoint-activated'
+                    });
+                },
+
+                takeDamage: (amount) => {
+                    const self = games.adventure;
+                    const now = performance.now();
+                    if (now < self.invulnerableUntil || self.gameOver) return;
+
+                    self.health = Math.max(0, self.health - amount);
+                    self.invulnerableUntil = now + 1200;
+                    self.addEffect('hit', self.player.x, self.player.y);
+
+                    if (self.health <= 0) {
+                        self.gameOver = true;
+                        return;
+                    }
+
+                    self.player.x = Math.max(self.lastCheckpointX + 20, self.cameraX + 40);
+                    self.player.y = 120;
+                    self.player.velX = 0;
+                    self.player.velY = 0;
                 },
 
                 update: () => {
                     const self = games.adventure;
                     const p = self.player;
+                    const now = performance.now();
+                    self.tick++;
+                    const theme = self.getLevelTheme();
 
                     // Movement Logic (Desktop Keys)
                     // Mobile buttons trigger velocity directly in handleInput, but keys need continuous check
                     if (self.keys['ArrowRight']) {
                         if (p.velX < p.speed) p.velX++;
+                        p.facing = 1;
                     }
                     if (self.keys['ArrowLeft']) {
                         if (p.velX > -p.speed) p.velX--;
+                        p.facing = -1;
                     }
 
                     // Physics
@@ -701,41 +896,116 @@
                         }
                     }
 
+                    for (let plat of self.movingPlatforms) {
+                        const baseX = plat.baseX ?? plat.x;
+                        if (!plat.baseX) plat.baseX = baseX;
+                        const previousX = plat.currentX ?? baseX;
+                        plat.currentX = baseX + Math.sin(self.tick * 0.02 + plat.offset) * plat.range;
+                        const deltaX = plat.currentX - previousX;
+
+                        if (p.x < plat.currentX + plat.width && p.x + p.width > plat.currentX) {
+                            if (p.y + p.height > plat.y && p.y + p.height < plat.y + p.velY + 10 && p.velY >= 0) {
+                                p.grounded = true;
+                                p.jumping = false;
+                                p.y = plat.y - p.height;
+                                p.velY = 0;
+                                p.x += deltaX;
+                            }
+                        }
+                    }
+
                     // Diamond Collection
                     for (let d of self.diamonds) {
                         if (!d.collected) {
                             if (p.x < d.x + d.width && p.x + p.width > d.x &&
                                 p.y < d.y + d.height && p.y + p.height > d.y) {
                                 d.collected = true;
-                                self.score += 50;
+                                self.score += d.bonus ? 120 : 50;
                                 document.getElementById('score-display').innerText = self.score;
+                                self.addEffect(d.bonus ? 'bonus' : 'sparkle', d.x, d.y);
                             }
+                        }
+                    }
+
+                    for (let h of self.hazards) {
+                        if (p.x < h.x + h.width && p.x + p.width > h.x &&
+                            p.y < h.y + h.height && p.y + p.height > h.y) {
+                            self.takeDamage(1);
                         }
                     }
 
                     // Enemy Collision
                     for (let e of self.enemies) {
-                        // Move Enemy
-                        e.x += e.speed;
-                        if (e.x > e.maxX || e.x < e.minX) e.speed *= -1;
+                        if (e.type === 'patroller') {
+                            e.x += e.speed;
+                            if (e.x > e.maxX || e.x < e.minX) e.speed *= -1;
+                        } else if (e.type === 'flyer') {
+                            e.x += e.speed;
+                            e.y += Math.sin(self.tick * 0.08 + e.x) * 0.6;
+                        } else if (e.type === 'hopper') {
+                            e.hopTimer = (e.hopTimer || 0) + 1;
+                            if (e.hopTimer > 80) {
+                                e.hopTimer = 0;
+                                e.velY = -6;
+                            }
+                            e.velY = (e.velY || 0) + 0.3;
+                            e.y += e.velY;
+                            if (e.y > 330) {
+                                e.y = 330;
+                                e.velY = 0;
+                            }
+                        }
 
-                        // Check collision
-                        if (p.x < e.x + e.width - 5 && p.x + p.width > e.x + 5 &&
-                            p.y < e.y + e.height - 5 && p.y + p.height > e.y + 5) {
-                            self.gameOver = true;
+                        const hit = p.x < e.x + e.width - 2 && p.x + p.width > e.x + 2 &&
+                            p.y < e.y + e.height - 2 && p.y + p.height > e.y + 2;
+
+                        if (hit) {
+                            if (p.velY > 0 && p.y + p.height - e.y < 12) {
+                                p.velY = -8;
+                                e.defeated = true;
+                                self.score += 80;
+                                self.addEffect('enemy', e.x, e.y);
+                            } else {
+                                self.takeDamage(1);
+                            }
+                        }
+                    }
+
+                    self.enemies = self.enemies.filter(e => !e.defeated);
+
+                    for (let effect of self.effects) {
+                        if (effect.type === 'checkpoint' && !effect.active && p.x + p.width > effect.x) {
+                            effect.active = true;
+                            self.lastCheckpointX = effect.x;
+                            self.health = Math.min(self.maxHealth, self.health + 1);
+                            self.addEffect('checkpoint-activated', effect.x, effect.y);
                         }
                     }
 
                     // Death by fall
-                    if (p.y > self.canvas.height) {
-                        self.gameOver = true;
+                    if (p.y > self.canvas.height + 200) {
+                        self.takeDamage(1);
                     }
 
                     // Camera follow
                     self.cameraX = p.x - 150; // Keep player at 150px from left
+                    self.backgroundOffset += p.velX * 0.03;
 
                     // Generate more world
                     self.spawnWorld();
+
+                    if (p.x > self.levelLength * (self.levelIndex + 1)) {
+                        self.levelIndex += 1;
+                        self.levelLength += 600;
+                        self.addEffect('levelup', p.x + 120, 140);
+                    }
+
+                    self.effects = self.effects.filter(effect => {
+                        if (effect.type === 'checkpoint' || effect.type === 'checkpoint-activated') return true;
+                        if (!effect.createdAt) return false;
+                        const lifetime = effect.type === 'levelup' ? 1400 : 700;
+                        return now - effect.createdAt < lifetime;
+                    });
 
                     if (self.gameOver) {
                         app.showGameOver(self.score);
@@ -746,33 +1016,76 @@
                     const self = games.adventure;
                     const ctx = self.ctx;
                     const cam = self.cameraX;
+                    const theme = self.getLevelTheme();
+                    const canvasWidth = self.canvas.width / (window.devicePixelRatio || 1);
+                    const canvasHeight = self.canvas.height / (window.devicePixelRatio || 1);
+                    const now = performance.now();
 
                     // Background (Sky)
-                    ctx.fillStyle = '#60a5fa'; // Blue sky
-                    ctx.fillRect(0, 0, self.canvas.width, self.canvas.height);
+                    const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+                    gradient.addColorStop(0, theme.sky[0]);
+                    gradient.addColorStop(1, theme.sky[1]);
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
                     
                     // Distant mountains (Parallax fake)
-                    ctx.fillStyle = '#3b82f6';
+                    ctx.fillStyle = theme.mountains;
                     ctx.beginPath();
-                    ctx.moveTo(0, 400);
-                    ctx.lineTo(100 - cam * 0.2, 100);
-                    ctx.lineTo(300 - cam * 0.2, 400);
+                    ctx.moveTo(0, canvasHeight);
+                    ctx.lineTo(120 - cam * 0.18, 120);
+                    ctx.lineTo(320 - cam * 0.18, canvasHeight);
                     ctx.fill();
 
+                    ctx.fillStyle = theme.fog;
+                    ctx.fillRect(0, canvasHeight - 120, canvasWidth, 120);
+
+                    // Floating clouds / mist
+                    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                    for (let i = 0; i < 4; i++) {
+                        const offset = (self.backgroundOffset * 20) + i * 220;
+                        const x = (offset % (canvasWidth + 260)) - 130;
+                        const y = 50 + i * 30 + Math.sin(self.tick * 0.02 + i) * 6;
+                        ctx.beginPath();
+                        ctx.ellipse(x, y, 60, 20, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
                     // Platforms
-                    ctx.fillStyle = '#854d0e'; // Brown dirt
+                    ctx.fillStyle = theme.platform; // Brown dirt
                     for (let plat of self.platforms) {
                         ctx.fillRect(plat.x - cam, plat.y, plat.width, plat.height);
                         // Grass top
-                        ctx.fillStyle = '#22c55e';
+                        ctx.fillStyle = theme.grass;
                         ctx.fillRect(plat.x - cam, plat.y, plat.width, 5);
-                        ctx.fillStyle = '#854d0e'; // Reset
+                        ctx.fillStyle = theme.platform; // Reset
+                    }
+
+                    // Moving Platforms
+                    ctx.fillStyle = theme.platform;
+                    for (let plat of self.movingPlatforms) {
+                        const x = (plat.currentX ?? plat.x) - cam;
+                        ctx.fillRect(x, plat.y, plat.width, plat.height);
+                        ctx.fillStyle = theme.accent;
+                        ctx.fillRect(x, plat.y, plat.width, 4);
+                        ctx.fillStyle = theme.platform;
+                    }
+
+                    // Hazards (spikes)
+                    ctx.fillStyle = '#ef4444';
+                    for (let h of self.hazards) {
+                        const hx = h.x - cam;
+                        ctx.beginPath();
+                        ctx.moveTo(hx, h.y + h.height);
+                        ctx.lineTo(hx + h.width / 2, h.y);
+                        ctx.lineTo(hx + h.width, h.y + h.height);
+                        ctx.closePath();
+                        ctx.fill();
                     }
 
                     // Diamonds (Purple Dave Style)
                     for (let d of self.diamonds) {
                         if (!d.collected) {
-                            ctx.fillStyle = '#c084fc';
+                            ctx.fillStyle = d.bonus ? '#f97316' : '#c084fc';
                             ctx.beginPath();
                             ctx.moveTo((d.x + 10) - cam, d.y);
                             ctx.lineTo((d.x + 20) - cam, d.y + 10);
@@ -787,15 +1100,75 @@
 
                     // Enemies (Skulls)
                     for (let e of self.enemies) {
-                        ctx.fillStyle = '#fff';
-                        ctx.beginPath();
                         const ex = e.x - cam;
-                        ctx.arc(ex + 12, e.y + 10, 10, 0, Math.PI * 2);
-                        ctx.fill();
-                        // Eyes
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(ex + 8, e.y + 6, 3, 3);
-                        ctx.fillRect(ex + 14, e.y + 6, 3, 3);
+                        if (e.type === 'flyer') {
+                            ctx.fillStyle = '#f472b6';
+                            ctx.beginPath();
+                            ctx.arc(ex + 10, e.y + 10, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#fff';
+                            ctx.fillRect(ex + 6, e.y + 6, 3, 3);
+                            ctx.fillRect(ex + 12, e.y + 6, 3, 3);
+                        } else if (e.type === 'hopper') {
+                            ctx.fillStyle = '#f97316';
+                            ctx.fillRect(ex, e.y, e.width, e.height);
+                            ctx.fillStyle = '#0f172a';
+                            ctx.fillRect(ex + 4, e.y + 6, 5, 5);
+                            ctx.fillRect(ex + 12, e.y + 6, 5, 5);
+                        } else {
+                            ctx.fillStyle = '#fff';
+                            ctx.beginPath();
+                            ctx.arc(ex + 12, e.y + 10, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#000';
+                            ctx.fillRect(ex + 8, e.y + 6, 3, 3);
+                            ctx.fillRect(ex + 14, e.y + 6, 3, 3);
+                        }
+                    }
+
+                    // Checkpoints & effects
+                    for (let effect of self.effects) {
+                        const ex = effect.x - cam;
+                        if (effect.type === 'checkpoint' || effect.type === 'checkpoint-activated') {
+                            ctx.fillStyle = effect.active ? '#22c55e' : '#38bdf8';
+                            ctx.fillRect(ex, effect.y, 14, 32);
+                            ctx.fillStyle = '#f8fafc';
+                            ctx.beginPath();
+                            ctx.moveTo(ex + 14, effect.y + 4);
+                            ctx.lineTo(ex + 34, effect.y + 10);
+                            ctx.lineTo(ex + 14, effect.y + 16);
+                            ctx.fill();
+                        } else if (effect.type === 'sparkle' || effect.type === 'bonus') {
+                            const age = (now - effect.createdAt) / 600;
+                            if (age < 1) {
+                                ctx.fillStyle = effect.type === 'bonus' ? '#f59e0b' : '#a855f7';
+                                ctx.globalAlpha = 1 - age;
+                                ctx.beginPath();
+                                ctx.arc(ex, effect.y, 10 + age * 12, 0, Math.PI * 2);
+                                ctx.fill();
+                                ctx.globalAlpha = 1;
+                            }
+                        } else if (effect.type === 'hit') {
+                            const age = (now - effect.createdAt) / 400;
+                            if (age < 1) {
+                                ctx.strokeStyle = '#ef4444';
+                                ctx.globalAlpha = 1 - age;
+                                ctx.lineWidth = 3;
+                                ctx.beginPath();
+                                ctx.arc(ex, effect.y, 18 + age * 18, 0, Math.PI * 2);
+                                ctx.stroke();
+                                ctx.globalAlpha = 1;
+                            }
+                        } else if (effect.type === 'levelup') {
+                            const age = (now - effect.createdAt) / 1200;
+                            if (age < 1) {
+                                ctx.fillStyle = '#eab308';
+                                ctx.globalAlpha = 1 - age;
+                                ctx.font = 'bold 20px Heebo';
+                                ctx.fillText(`שלב ${self.levelIndex + 1}: ${theme.name}`, ex, effect.y);
+                                ctx.globalAlpha = 1;
+                            }
+                        }
                     }
 
                     // Player (Captain Dave - Red Hat, Blue Body)
@@ -804,6 +1177,9 @@
                     
                     // Body
                     ctx.fillStyle = '#2563eb'; 
+                    if (now < self.invulnerableUntil && Math.floor(now / 120) % 2 === 0) {
+                        ctx.globalAlpha = 0.4;
+                    }
                     ctx.fillRect(px, py + 10, 24, 14);
                     // Head
                     ctx.fillStyle = '#fca5a5'; // Skin
@@ -815,6 +1191,25 @@
                     // Feather
                     ctx.fillStyle = '#fbbf24';
                     ctx.fillRect(px + 16, py - 14, 4, 6);
+
+                    // Legs animation
+                    ctx.fillStyle = '#1e3a8a';
+                    const step = Math.sin(self.tick * 0.2) * 4;
+                    ctx.fillRect(px + 4, py + 24, 6, 6 + step);
+                    ctx.fillRect(px + 14, py + 24, 6, 6 - step);
+                    ctx.globalAlpha = 1;
+
+                    // HUD
+                    ctx.fillStyle = 'rgba(15,23,42,0.75)';
+                    ctx.fillRect(12, 12, 150, 40);
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.font = 'bold 14px Heebo';
+                    ctx.fillText(`שלב: ${self.levelIndex + 1} (${theme.name})`, 20, 28);
+                    ctx.fillText('חיים:', 20, 46);
+                    for (let i = 0; i < self.maxHealth; i++) {
+                        ctx.fillStyle = i < self.health ? '#ef4444' : '#475569';
+                        ctx.fillRect(64 + i * 18, 36, 12, 12);
+                    }
 
                 },
 
