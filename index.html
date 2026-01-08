@@ -67,6 +67,20 @@
             height: 100%;
             image-rendering: pixelated; /* Retro feel */
         }
+        #view-game.fullscreen-mode {
+            max-width: none;
+            width: 100%;
+            height: 100vh;
+        }
+        #game-playground.fullscreen-mode {
+            height: calc(100vh - 220px);
+            max-height: none;
+        }
+        @media (min-width: 1024px) {
+            #game-playground.fullscreen-mode {
+                height: calc(100vh - 200px);
+            }
+        }
 
         /* Memory Game Grid */
         .memory-grid {
@@ -234,19 +248,19 @@
                 <div class="grid grid-cols-3 gap-2">
                     <!-- Left/Right/Up/Down Layout -->
                     <div class="col-start-2 flex justify-center">
-                        <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" onclick="app.triggerInput('ArrowUp')"><i class="fa-solid fa-arrow-up text-xl"></i></button>
-                    </div>
-                    <div class="col-start-1 row-start-2 flex justify-center">
-                        <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" onclick="app.triggerInput('ArrowLeft')"><i class="fa-solid fa-arrow-left text-xl"></i></button>
-                    </div>
-                    <div class="col-start-2 row-start-2 flex justify-center">
-                        <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" onclick="app.triggerInput('ArrowDown')"><i class="fa-solid fa-arrow-down text-xl"></i></button>
-                    </div>
-                    <div class="col-start-3 row-start-2 flex justify-center">
-                        <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" onclick="app.triggerInput('ArrowRight')"><i class="fa-solid fa-arrow-right text-xl"></i></button>
-                    </div>
+                    <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" data-control="ArrowUp"><i class="fa-solid fa-arrow-up text-xl"></i></button>
+                </div>
+                <div class="col-start-1 row-start-2 flex justify-center">
+                    <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" data-control="ArrowLeft"><i class="fa-solid fa-arrow-left text-xl"></i></button>
+                </div>
+                <div class="col-start-2 row-start-2 flex justify-center">
+                    <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" data-control="ArrowDown"><i class="fa-solid fa-arrow-down text-xl"></i></button>
+                </div>
+                <div class="col-start-3 row-start-2 flex justify-center">
+                    <button class="bg-slate-700 active:bg-indigo-600 w-16 h-16 rounded-full text-white shadow-lg border-b-4 border-slate-900 active:border-0 active:translate-y-1" data-control="ArrowRight"><i class="fa-solid fa-arrow-right text-xl"></i></button>
                 </div>
             </div>
+        </div>
 
             <!-- Instructions -->
             <div id="game-instructions" class="mt-8 text-center text-slate-400 max-w-lg">
@@ -295,7 +309,7 @@
             {
                 id: 'adventure',
                 title: 'קפטן דייב: האוצר האבוד',
-                description: 'משחק פלטפורמה אפי! קפוץ מעל תהומות, אסוף יהלומים והיזהר מהגולגולות. מחווה למריו ודייב.',
+                description: 'משחק פלטפורמה אפי עם שלבים מתקדמים, רקעים מתחלפים ובונוסים מיוחדים. קפוץ מעל תהומות, אסוף יהלומים והיזהר מהגולגולות.',
                 icon: 'fa-hat-pirate', // Custom feel
                 color: 'text-yellow-400',
                 type: 'canvas'
@@ -330,12 +344,14 @@
         const app = {
             activeGameId: null,
             fullscreenTarget: null,
+            controlStates: {},
             
             init: () => {
                 app.renderMenu();
                 app.fullscreenTarget = document.getElementById('view-game');
                 document.addEventListener('fullscreenchange', app.updateFullscreenButton);
                 window.addEventListener('resize', app.resizeCanvas);
+                app.bindMobileControls();
             },
 
             renderMenu: () => {
@@ -364,11 +380,14 @@
                 if (!canvas || !playground) return;
 
                 const rect = playground.getBoundingClientRect();
-                const targetSize = Math.min(rect.width - 32, rect.height - 32);
-                const size = Math.max(320, Math.floor(targetSize));
+                const styles = window.getComputedStyle(playground);
+                const paddingX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+                const paddingY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+                const width = Math.max(320, Math.floor(rect.width - paddingX));
+                const height = Math.max(320, Math.floor(rect.height - paddingY));
 
-                canvas.width = size;
-                canvas.height = size;
+                canvas.width = width;
+                canvas.height = height;
             },
 
             loadGame: (gameId) => {
@@ -387,6 +406,7 @@
 
                 // Cleanup previous
                 games.cleanup();
+                app.controlStates = {};
 
                 // Setup Env
                 const canvas = document.getElementById('game-canvas');
@@ -409,6 +429,7 @@
                     games[gameId].init();
                 }
 
+                app.applyFullscreenLayout();
                 app.enterFullscreen();
             },
 
@@ -428,6 +449,7 @@
                 document.getElementById('view-game').classList.add('hidden');
                 document.getElementById('ai-overlay').classList.add('hidden');
                 app.exitFullscreen();
+                app.applyFullscreenLayout();
             },
 
             // Helper for on-screen buttons
@@ -474,6 +496,39 @@
                     button.innerHTML = '<i class="fa-solid fa-compress"></i> יציאה ממסך מלא';
                 } else {
                     button.innerHTML = '<i class="fa-solid fa-expand"></i> מסך מלא';
+                }
+                app.applyFullscreenLayout();
+            },
+            
+            applyFullscreenLayout: () => {
+                const viewGame = document.getElementById('view-game');
+                const playground = document.getElementById('game-playground');
+                if (!viewGame || !playground) return;
+
+                const isFullscreen = Boolean(document.fullscreenElement);
+                viewGame.classList.toggle('fullscreen-mode', isFullscreen);
+                playground.classList.toggle('fullscreen-mode', isFullscreen);
+                setTimeout(app.resizeCanvas, 50);
+            },
+
+            bindMobileControls: () => {
+                const controls = document.querySelectorAll('#mobile-controls [data-control]');
+                controls.forEach((button) => {
+                    const key = button.getAttribute('data-control');
+                    const activate = () => app.setControlState(key, true);
+                    const deactivate = () => app.setControlState(key, false);
+
+                    button.addEventListener('pointerdown', activate);
+                    button.addEventListener('pointerup', deactivate);
+                    button.addEventListener('pointerleave', deactivate);
+                    button.addEventListener('pointercancel', deactivate);
+                });
+            },
+
+            setControlState: (key, isActive) => {
+                app.controlStates[key] = isActive;
+                if (isActive) {
+                    app.triggerInput(key);
                 }
             },
 
@@ -526,6 +581,7 @@
                 if (games.animationId) cancelAnimationFrame(games.animationId);
                 document.onkeydown = null;
                 document.onkeyup = null;
+                app.controlStates = {};
             },
 
             // --- CAPTAIN DAVE ADVENTURE (PLATFORMER) ---
@@ -536,13 +592,73 @@
                 keys: {},
                 platforms: [],
                 diamonds: [],
+                powerUps: [],
                 enemies: [],
+                particles: [],
+                clouds: [],
+                birds: [],
+                stars: [],
                 cameraX: 0,
                 gravity: 0.6,
-                friction: 0.8,
+                friction: 0.82,
                 score: 0,
                 gameOver: false,
                 lastPlatformX: 0,
+                levelIndex: 0,
+                levelLength: 2400,
+                levelAnnouncementTimer: 0,
+                boostTimer: 0,
+                playerAnimationTick: 0,
+                levels: [
+                    {
+                        name: 'יער הערפל',
+                        sky: ['#38bdf8', '#a5f3fc'],
+                        mountains: '#1d4ed8',
+                        ground: '#854d0e',
+                        grass: '#22c55e',
+                        accent: '#10b981',
+                        gap: [60, 120],
+                        width: [140, 260],
+                        yRange: [0.58, 0.78],
+                        enemyChance: 0.55,
+                        flyingChance: 0.2,
+                        movingChance: 0.2,
+                        powerChance: 0.18,
+                        ambience: 'forest'
+                    },
+                    {
+                        name: 'מדבר הזוהר',
+                        sky: ['#fb923c', '#fde68a'],
+                        mountains: '#ea580c',
+                        ground: '#92400e',
+                        grass: '#facc15',
+                        accent: '#f97316',
+                        gap: [80, 150],
+                        width: [120, 220],
+                        yRange: [0.55, 0.75],
+                        enemyChance: 0.62,
+                        flyingChance: 0.3,
+                        movingChance: 0.28,
+                        powerChance: 0.22,
+                        ambience: 'desert'
+                    },
+                    {
+                        name: 'מערת הקריסטל',
+                        sky: ['#312e81', '#1e1b4b'],
+                        mountains: '#0f172a',
+                        ground: '#1f2937',
+                        grass: '#38bdf8',
+                        accent: '#8b5cf6',
+                        gap: [90, 170],
+                        width: [110, 210],
+                        yRange: [0.5, 0.72],
+                        enemyChance: 0.7,
+                        flyingChance: 0.4,
+                        movingChance: 0.35,
+                        powerChance: 0.28,
+                        ambience: 'cave'
+                    }
+                ],
 
                 init: () => {
                     const self = games.adventure;
@@ -557,24 +673,36 @@
                     self.keys = {};
                     self.platforms = [];
                     self.diamonds = [];
+                    self.powerUps = [];
                     self.enemies = [];
+                    self.particles = [];
+                    self.clouds = [];
+                    self.birds = [];
+                    self.stars = [];
+                    self.levelIndex = 0;
+                    self.levelAnnouncementTimer = 180;
+                    self.boostTimer = 0;
+                    self.playerAnimationTick = 0;
                     
                     // Player setup
                     self.player = {
                         x: 100,
                         y: 100,
-                        width: 24,
-                        height: 24,
-                        speed: 4, // Movement speed
+                        width: 26,
+                        height: 30,
+                        speed: 4.2, // Movement speed
                         velX: 0,
                         velY: 0,
                         jumping: false,
-                        grounded: false
+                        grounded: false,
+                        facing: 1
                     };
 
                     // Initial ground
-                    self.generatePlatform(0, 350, 600); // Start platform
-                    self.lastPlatformX = 600;
+                    const baseGround = Math.min(self.canvas.height - 80, 380);
+                    self.generatePlatform(0, baseGround, 700); // Start platform
+                    self.lastPlatformX = 700;
+                    self.seedAmbience();
 
                     // Event Listeners
                     document.onkeydown = (e) => {
@@ -604,6 +732,9 @@
                             self.player.velY = -12; // Jump force
                         }
                     }
+                    if (key === 'ArrowDown' && self.player.grounded) {
+                        self.player.velX *= 0.6;
+                    }
                     // For left/right on mobile, we need state, but for simplicity in this func:
                     // We rely on 'keys' object for smooth movement in loop, 
                     // mobile buttons need 'mousedown/touchstart' to set flag really.
@@ -612,10 +743,50 @@
                     if (key === 'ArrowLeft') self.player.velX -= 2;
                 },
 
+                seedAmbience: () => {
+                    const self = games.adventure;
+                    self.clouds = Array.from({ length: 8 }).map((_, index) => ({
+                        x: index * 180,
+                        y: 40 + Math.random() * 120,
+                        speed: 0.2 + Math.random() * 0.4,
+                        scale: 0.6 + Math.random() * 0.6
+                    }));
+                    self.birds = Array.from({ length: 5 }).map((_, index) => ({
+                        x: 200 + index * 220,
+                        y: 80 + Math.random() * 100,
+                        speed: 0.6 + Math.random() * 0.4,
+                        phase: Math.random() * Math.PI * 2
+                    }));
+                    self.stars = Array.from({ length: 28 }).map(() => ({
+                        x: Math.random() * self.canvas.width,
+                        y: Math.random() * 200,
+                        size: 1 + Math.random() * 2,
+                        glow: Math.random() * Math.PI * 2
+                    }));
+                },
+
+                getLevelConfig: () => {
+                    const self = games.adventure;
+                    return self.levels[Math.min(self.levelIndex, self.levels.length - 1)];
+                },
+
                 // Procedural Generation
                 generatePlatform: (x, y, w) => {
                     const self = games.adventure;
-                    self.platforms.push({ x, y, width: w, height: 30 });
+                    const level = self.getLevelConfig();
+                    const moving = Math.random() < level.movingChance && w > 140;
+                    const platform = {
+                        x,
+                        y,
+                        width: w,
+                        height: 30,
+                        type: moving ? 'moving' : 'static',
+                        baseX: x,
+                        range: moving ? 40 + Math.random() * 90 : 0,
+                        speed: moving ? 0.6 + Math.random() * 0.8 : 0,
+                        direction: Math.random() > 0.5 ? 1 : -1
+                    };
+                    self.platforms.push(platform);
                     
                     // Add items randomly
                     if (Math.random() > 0.3) {
@@ -628,31 +799,49 @@
                         });
                     }
 
+                    if (Math.random() < level.powerChance) {
+                        self.powerUps.push({
+                            x: x + 30 + Math.random() * (w - 60),
+                            y: y - 50,
+                            width: 22,
+                            height: 22,
+                            type: 'boost',
+                            collected: false,
+                            bob: Math.random() * Math.PI * 2
+                        });
+                    }
+
                     // Add enemy
-                    if (Math.random() > 0.6 && w > 100) {
+                    if (Math.random() < level.enemyChance && w > 100) {
+                        const isFlying = Math.random() < level.flyingChance;
+                        const type = isFlying ? 'bat' : (Math.random() > 0.5 ? 'skull' : 'crab');
                         self.enemies.push({
+                            type,
                             x: x + 40,
-                            y: y - 24,
+                            y: isFlying ? y - 110 : y - 24,
                             width: 24,
                             height: 24,
-                            speed: 1,
+                            speed: isFlying ? 1.1 : 0.9,
                             minX: x,
-                            maxX: x + w
+                            maxX: x + w,
+                            originY: isFlying ? y - 110 : y - 24,
+                            phase: Math.random() * Math.PI * 2
                         });
                     }
                 },
 
                 spawnWorld: () => {
                     const self = games.adventure;
+                    const level = self.getLevelConfig();
+                    const canvasHeight = self.canvas.height;
+                    const minY = Math.max(160, Math.floor(canvasHeight * level.yRange[0]));
+                    const maxY = Math.min(Math.floor(canvasHeight * level.yRange[1]), canvasHeight - 60);
                     // Keep generating platforms ahead of player
                     while (self.lastPlatformX < self.player.x + 800) {
-                        const gap = 60 + Math.random() * 80; // Random gap
-                        const yChange = (Math.random() * 100) - 50; // Height difference
-                        let y = 350 + yChange;
-                        if (y > 380) y = 380;
-                        if (y < 200) y = 200;
+                        const gap = level.gap[0] + Math.random() * (level.gap[1] - level.gap[0]); // Random gap
+                        let y = minY + Math.random() * (maxY - minY);
                         
-                        const w = 80 + Math.random() * 200;
+                        const w = level.width[0] + Math.random() * (level.width[1] - level.width[0]);
                         
                         self.generatePlatform(self.lastPlatformX + gap, y, w);
                         self.lastPlatformX += (gap + w);
@@ -661,7 +850,67 @@
                     // Clean up old objects to save memory
                     self.platforms = self.platforms.filter(p => p.x + p.width > self.cameraX - 100);
                     self.diamonds = self.diamonds.filter(d => d.x > self.cameraX - 100);
+                    self.powerUps = self.powerUps.filter(p => p.x > self.cameraX - 100);
                     self.enemies = self.enemies.filter(e => e.x > self.cameraX - 100);
+                    self.particles = self.particles.filter(p => p.life > 0);
+                },
+
+                advanceLevel: () => {
+                    const self = games.adventure;
+                    if (self.levelIndex < self.levels.length - 1) {
+                        self.levelIndex += 1;
+                        self.levelAnnouncementTimer = 200;
+                        self.score += 250;
+                        document.getElementById('score-display').innerText = self.score;
+                    }
+                },
+
+                updatePlatforms: () => {
+                    const self = games.adventure;
+                    for (let plat of self.platforms) {
+                        if (plat.type === 'moving') {
+                            plat.x += plat.speed * plat.direction;
+                            if (plat.x > plat.baseX + plat.range || plat.x < plat.baseX - plat.range) {
+                                plat.direction *= -1;
+                            }
+                        }
+                    }
+                },
+
+                updateParticles: () => {
+                    const self = games.adventure;
+                    self.particles.forEach((particle) => {
+                        particle.x += particle.vx;
+                        particle.y += particle.vy;
+                        particle.vy += 0.05;
+                        particle.life -= 1;
+                    });
+                },
+
+                updateBackground: () => {
+                    const self = games.adventure;
+                    const cam = self.cameraX;
+                    self.clouds.forEach((cloud) => {
+                        cloud.x += cloud.speed;
+                        if (cloud.x - cam < -200) {
+                            cloud.x = cam + self.canvas.width + 200;
+                            cloud.y = 40 + Math.random() * 140;
+                            cloud.scale = 0.6 + Math.random() * 0.6;
+                        }
+                    });
+                    self.birds.forEach((bird) => {
+                        bird.x += bird.speed;
+                        bird.phase += 0.08;
+                        bird.y += Math.sin(bird.phase) * 0.6;
+                        if (bird.x - cam < -200) {
+                            bird.x = cam + self.canvas.width + 200;
+                            bird.y = 60 + Math.random() * 120;
+                            bird.speed = 0.6 + Math.random() * 0.4;
+                        }
+                    });
+                    self.stars.forEach((star) => {
+                        star.glow += 0.05;
+                    });
                 },
 
                 update: () => {
@@ -670,11 +919,16 @@
 
                     // Movement Logic (Desktop Keys)
                     // Mobile buttons trigger velocity directly in handleInput, but keys need continuous check
-                    if (self.keys['ArrowRight']) {
+                    if (self.keys['ArrowRight'] || app.controlStates['ArrowRight']) {
                         if (p.velX < p.speed) p.velX++;
+                        p.facing = 1;
                     }
-                    if (self.keys['ArrowLeft']) {
+                    if (self.keys['ArrowLeft'] || app.controlStates['ArrowLeft']) {
                         if (p.velX > -p.speed) p.velX--;
+                        p.facing = -1;
+                    }
+                    if (self.keys['ArrowDown'] || app.controlStates['ArrowDown']) {
+                        p.velX *= 0.95;
                     }
 
                     // Physics
@@ -687,6 +941,8 @@
                     p.x += p.velX;
                     p.y += p.velY;
 
+                    self.updatePlatforms();
+
                     // Platform Collisions
                     for (let plat of self.platforms) {
                         // Check if inside platform horizontally
@@ -697,6 +953,9 @@
                                 p.jumping = false;
                                 p.y = plat.y - p.height;
                                 p.velY = 0;
+                                if (plat.type === 'moving') {
+                                    p.x += plat.speed * plat.direction;
+                                }
                             }
                         }
                     }
@@ -709,20 +968,56 @@
                                 d.collected = true;
                                 self.score += 50;
                                 document.getElementById('score-display').innerText = self.score;
+                                for (let i = 0; i < 8; i++) {
+                                    self.particles.push({
+                                        x: d.x + 10,
+                                        y: d.y + 10,
+                                        vx: (Math.random() - 0.5) * 2,
+                                        vy: -1 - Math.random(),
+                                        life: 40,
+                                        color: '#c084fc'
+                                    });
+                                }
                             }
                         }
+                    }
+
+                    // Power-up Collection
+                    for (let power of self.powerUps) {
+                        if (!power.collected) {
+                            if (p.x < power.x + power.width && p.x + p.width > power.x &&
+                                p.y < power.y + power.height && p.y + p.height > power.y) {
+                                power.collected = true;
+                                self.boostTimer = 240;
+                                self.score += 80;
+                                document.getElementById('score-display').innerText = self.score;
+                            }
+                        }
+                        power.bob += 0.08;
                     }
 
                     // Enemy Collision
                     for (let e of self.enemies) {
                         // Move Enemy
-                        e.x += e.speed;
+                        if (e.type === 'bat') {
+                            e.x += e.speed;
+                            e.phase += 0.08;
+                            e.y = e.originY + Math.sin(e.phase) * 18;
+                        } else {
+                            e.x += e.speed;
+                        }
                         if (e.x > e.maxX || e.x < e.minX) e.speed *= -1;
 
                         // Check collision
                         if (p.x < e.x + e.width - 5 && p.x + p.width > e.x + 5 &&
                             p.y < e.y + e.height - 5 && p.y + p.height > e.y + 5) {
-                            self.gameOver = true;
+                            if (self.boostTimer > 0) {
+                                self.boostTimer = 0;
+                                self.score += 30;
+                                document.getElementById('score-display').innerText = self.score;
+                            } else {
+                                self.gameOver = true;
+                            }
                         }
                     }
 
@@ -737,6 +1032,22 @@
                     // Generate more world
                     self.spawnWorld();
 
+                    if (p.x > (self.levelIndex + 1) * self.levelLength) {
+                        self.advanceLevel();
+                    }
+
+                    if (self.boostTimer > 0) {
+                        self.boostTimer--;
+                        p.speed = 5.6;
+                    } else {
+                        p.speed = 4.2;
+                    }
+
+                    self.updateParticles();
+                    self.updateBackground();
+                    self.playerAnimationTick += 1;
+                    if (self.levelAnnouncementTimer > 0) self.levelAnnouncementTimer -= 1;
+
                     if (self.gameOver) {
                         app.showGameOver(self.score);
                     }
@@ -746,27 +1057,74 @@
                     const self = games.adventure;
                     const ctx = self.ctx;
                     const cam = self.cameraX;
+                    const level = self.getLevelConfig();
 
                     // Background (Sky)
-                    ctx.fillStyle = '#60a5fa'; // Blue sky
+                    const gradient = ctx.createLinearGradient(0, 0, 0, self.canvas.height);
+                    gradient.addColorStop(0, level.sky[0]);
+                    gradient.addColorStop(1, level.sky[1]);
+                    ctx.fillStyle = gradient;
                     ctx.fillRect(0, 0, self.canvas.width, self.canvas.height);
-                    
+
+                    if (level.ambience === 'desert') {
+                        ctx.fillStyle = '#fef08a';
+                        ctx.beginPath();
+                        ctx.arc(self.canvas.width - 80, 80, 35, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    if (level.ambience === 'cave') {
+                        self.stars.forEach((star) => {
+                            ctx.fillStyle = `rgba(226, 232, 240, ${0.4 + Math.sin(star.glow) * 0.3})`;
+                            ctx.fillRect(star.x, star.y, star.size, star.size);
+                        });
+                    }
+
                     // Distant mountains (Parallax fake)
-                    ctx.fillStyle = '#3b82f6';
+                    ctx.fillStyle = level.mountains;
                     ctx.beginPath();
-                    ctx.moveTo(0, 400);
-                    ctx.lineTo(100 - cam * 0.2, 100);
-                    ctx.lineTo(300 - cam * 0.2, 400);
+                    ctx.moveTo(0 - cam * 0.1, self.canvas.height);
+                    ctx.lineTo(120 - cam * 0.1, 120);
+                    ctx.lineTo(320 - cam * 0.1, self.canvas.height);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(240 - cam * 0.15, self.canvas.height);
+                    ctx.lineTo(420 - cam * 0.15, 160);
+                    ctx.lineTo(660 - cam * 0.15, self.canvas.height);
                     ctx.fill();
 
+                    // Atmosphere elements
+                    self.clouds.forEach((cloud) => {
+                        const x = cloud.x - cam * 0.3;
+                        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                        ctx.beginPath();
+                        ctx.ellipse(x, cloud.y, 30 * cloud.scale, 16 * cloud.scale, 0, 0, Math.PI * 2);
+                        ctx.ellipse(x + 26, cloud.y + 6, 24 * cloud.scale, 14 * cloud.scale, 0, 0, Math.PI * 2);
+                        ctx.ellipse(x - 24, cloud.y + 8, 20 * cloud.scale, 12 * cloud.scale, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+                    self.birds.forEach((bird) => {
+                        const x = bird.x - cam * 0.4;
+                        ctx.strokeStyle = '#0f172a';
+                        ctx.beginPath();
+                        ctx.moveTo(x - 6, bird.y);
+                        ctx.lineTo(x, bird.y + 4);
+                        ctx.lineTo(x + 6, bird.y);
+                        ctx.stroke();
+                    });
+
                     // Platforms
-                    ctx.fillStyle = '#854d0e'; // Brown dirt
+                    ctx.fillStyle = level.ground; // Brown dirt
                     for (let plat of self.platforms) {
                         ctx.fillRect(plat.x - cam, plat.y, plat.width, plat.height);
                         // Grass top
-                        ctx.fillStyle = '#22c55e';
+                        ctx.fillStyle = level.grass;
                         ctx.fillRect(plat.x - cam, plat.y, plat.width, 5);
-                        ctx.fillStyle = '#854d0e'; // Reset
+                        ctx.fillStyle = level.ground; // Reset
+                        if (plat.type === 'moving') {
+                            ctx.fillStyle = level.accent;
+                            ctx.fillRect(plat.x - cam + 6, plat.y + 10, 12, 6);
+                            ctx.fillStyle = level.ground;
+                        }
                     }
 
                     // Diamonds (Purple Dave Style)
@@ -785,36 +1143,107 @@
                         }
                     }
 
+                    // Power-ups
+                    for (let power of self.powerUps) {
+                        if (!power.collected) {
+                            const bob = Math.sin(power.bob) * 4;
+                            ctx.fillStyle = '#f97316';
+                            ctx.beginPath();
+                            ctx.arc(power.x - cam, power.y + bob, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#fff7ed';
+                            ctx.fillRect(power.x - cam - 3, power.y + bob - 6, 6, 12);
+                        }
+                    }
+
                     // Enemies (Skulls)
                     for (let e of self.enemies) {
-                        ctx.fillStyle = '#fff';
-                        ctx.beginPath();
                         const ex = e.x - cam;
-                        ctx.arc(ex + 12, e.y + 10, 10, 0, Math.PI * 2);
-                        ctx.fill();
-                        // Eyes
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(ex + 8, e.y + 6, 3, 3);
-                        ctx.fillRect(ex + 14, e.y + 6, 3, 3);
+                        if (e.type === 'bat') {
+                            ctx.fillStyle = '#0f172a';
+                            ctx.beginPath();
+                            ctx.moveTo(ex, e.y + 12);
+                            ctx.lineTo(ex + 12, e.y);
+                            ctx.lineTo(ex + 24, e.y + 12);
+                            ctx.lineTo(ex + 12, e.y + 8);
+                            ctx.closePath();
+                            ctx.fill();
+                        } else {
+                            ctx.fillStyle = '#fff';
+                            ctx.beginPath();
+                            ctx.arc(ex + 12, e.y + 10, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            // Eyes
+                            ctx.fillStyle = '#000';
+                            ctx.fillRect(ex + 8, e.y + 6, 3, 3);
+                            ctx.fillRect(ex + 14, e.y + 6, 3, 3);
+                            if (e.type === 'crab') {
+                                ctx.strokeStyle = '#ef4444';
+                                ctx.beginPath();
+                                ctx.moveTo(ex + 4, e.y + 16);
+                                ctx.lineTo(ex, e.y + 22);
+                                ctx.moveTo(ex + 20, e.y + 16);
+                                ctx.lineTo(ex + 24, e.y + 22);
+                                ctx.stroke();
+                            }
+                        }
                     }
 
                     // Player (Captain Dave - Red Hat, Blue Body)
                     const px = self.player.x - cam;
                     const py = self.player.y;
+                    const frame = Math.floor(self.playerAnimationTick / 10) % 2;
                     
                     // Body
                     ctx.fillStyle = '#2563eb'; 
-                    ctx.fillRect(px, py + 10, 24, 14);
+                    ctx.fillRect(px, py + 12, 26, 16);
                     // Head
                     ctx.fillStyle = '#fca5a5'; // Skin
-                    ctx.fillRect(px + 4, py, 16, 12);
+                    ctx.fillRect(px + 5, py, 16, 12);
                     // Hat (Pirate/Captain style)
                     ctx.fillStyle = '#dc2626'; // Red
-                    ctx.fillRect(px, py - 4, 24, 6); // Brim
-                    ctx.fillRect(px + 4, py - 10, 16, 8); // Top
+                    ctx.fillRect(px, py - 4, 26, 6); // Brim
+                    ctx.fillRect(px + 4, py - 10, 18, 8); // Top
                     // Feather
                     ctx.fillStyle = '#fbbf24';
-                    ctx.fillRect(px + 16, py - 14, 4, 6);
+                    ctx.fillRect(px + 18, py - 14, 4, 6);
+
+                    // Legs animation
+                    ctx.fillStyle = '#1e3a8a';
+                    if (frame === 0) {
+                        ctx.fillRect(px + 6, py + 26, 6, 6);
+                        ctx.fillRect(px + 16, py + 24, 6, 8);
+                    } else {
+                        ctx.fillRect(px + 6, py + 24, 6, 8);
+                        ctx.fillRect(px + 16, py + 26, 6, 6);
+                    }
+
+                    // Boost aura
+                    if (self.boostTimer > 0) {
+                        ctx.strokeStyle = 'rgba(249, 115, 22, 0.7)';
+                        ctx.beginPath();
+                        ctx.arc(px + 12, py + 14, 20, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+
+                    // Particles
+                    self.particles.forEach((particle) => {
+                        ctx.fillStyle = particle.color;
+                        ctx.globalAlpha = Math.max(particle.life / 40, 0);
+                        ctx.fillRect(particle.x - cam, particle.y, 3, 3);
+                        ctx.globalAlpha = 1;
+                    });
+
+                    // Level announcement
+                    if (self.levelAnnouncementTimer > 0) {
+                        ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+                        ctx.fillRect(self.canvas.width / 2 - 140, 20, 280, 40);
+                        ctx.fillStyle = '#fff';
+                        ctx.font = 'bold 18px Heebo';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`שלב ${self.levelIndex + 1}: ${level.name}`, self.canvas.width / 2, 48);
+                        ctx.textAlign = 'left';
+                    }
 
                 },
 
@@ -847,8 +1276,18 @@
                     self.canvas = document.getElementById('game-canvas');
                     self.ctx = self.canvas.getContext('2d');
                     
-                    self.snakeArr = [{x: 160, y: 160}, {x: 140, y: 160}, {x: 120, y: 160}];
-                    self.apple = {x: 320, y: 320};
+                    self.grid = Math.max(16, Math.floor(Math.min(self.canvas.width, self.canvas.height) / 25));
+                    const startX = Math.floor((self.canvas.width / 2) / self.grid) * self.grid;
+                    const startY = Math.floor((self.canvas.height / 2) / self.grid) * self.grid;
+                    self.snakeArr = [
+                        {x: startX, y: startY},
+                        {x: startX - self.grid, y: startY},
+                        {x: startX - self.grid * 2, y: startY}
+                    ];
+                    self.apple = {
+                        x: Math.floor(Math.random() * (self.canvas.width / self.grid)) * self.grid,
+                        y: Math.floor(Math.random() * (self.canvas.height / self.grid)) * self.grid
+                    };
                     self.dx = self.grid;
                     self.dy = 0;
                     self.score = 0;
