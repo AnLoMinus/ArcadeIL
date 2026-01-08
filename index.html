@@ -63,6 +63,8 @@
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
             display: block;
             margin: 0 auto;
+            width: 100%;
+            height: 100%;
             image-rendering: pixelated; /* Retro feel */
         }
 
@@ -196,7 +198,7 @@
             </div>
 
             <!-- Game Area -->
-            <div id="game-playground" class="w-full flex justify-center items-center bg-slate-800/50 p-6 rounded-3xl border border-slate-700/50 min-h-[420px] relative overflow-hidden">
+            <div id="game-playground" class="w-full flex justify-center items-center bg-slate-800/50 p-6 rounded-3xl border border-slate-700/50 min-h-[420px] h-[70vh] max-h-[900px] relative overflow-hidden">
                 
                 <!-- Dynamic Game Content injected here -->
                 <canvas id="game-canvas" width="400" height="400" class="hidden rounded shadow-lg max-w-full z-10"></canvas>
@@ -333,6 +335,7 @@
                 app.renderMenu();
                 app.fullscreenTarget = document.getElementById('view-game');
                 document.addEventListener('fullscreenchange', app.updateFullscreenButton);
+                window.addEventListener('resize', app.resizeCanvas);
             },
 
             renderMenu: () => {
@@ -353,6 +356,19 @@
                         </div>
                     </div>
                 `).join('');
+            },
+
+            resizeCanvas: () => {
+                const canvas = document.getElementById('game-canvas');
+                const playground = document.getElementById('game-playground');
+                if (!canvas || !playground) return;
+
+                const rect = playground.getBoundingClientRect();
+                const targetSize = Math.min(rect.width - 32, rect.height - 32);
+                const size = Math.max(320, Math.floor(targetSize));
+
+                canvas.width = size;
+                canvas.height = size;
             },
 
             loadGame: (gameId) => {
@@ -381,6 +397,7 @@
                     canvas.classList.remove('hidden');
                     domContainer.innerHTML = '';
                     mobileControls.classList.remove('hidden'); 
+                    app.resizeCanvas();
                 } else {
                     canvas.classList.add('hidden');
                     mobileControls.classList.add('hidden');
@@ -399,6 +416,7 @@
                 document.getElementById('ai-overlay').classList.add('hidden');
                 games.cleanup();
                 if (app.activeGameId && games[app.activeGameId]) {
+                    app.resizeCanvas();
                     games[app.activeGameId].init();
                 }
             },
