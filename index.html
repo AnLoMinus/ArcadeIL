@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcadeIL - זירת המשחקים AI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;700;900&display=swap');
+        
+        body {
+            font-family: 'Heebo', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #f1f5f9;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #6366f1;
+            border-radius: 4px;
+        }
+
+        /* Neon Glow Effects */
+        .neon-text {
+            text-shadow: 0 0 10px rgba(99, 102, 241, 0.7);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Game Specific Styles */
+        #game-canvas {
+            background-color: #000;
+            border: 2px solid #333;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            display: block;
+            margin: 0 auto;
+        }
+
+        /* Memory Game Grid */
+        .memory-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .memory-card {
+            aspect-ratio: 1;
+            background: #1e293b;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            transition: transform 0.6s, background 0.3s;
+            transform-style: preserve-3d;
+            position: relative;
+            border: 2px solid #3b82f6;
+        }
+        .memory-card.flipped {
+            background: #3b82f6;
+            transform: rotateY(180deg);
+        }
+        .memory-card.matched {
+            background: #10b981; /* Green */
+            border-color: #10b981;
+            cursor: default;
+        }
+
+        /* AI Overlay Styles */
+        #ai-overlay {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(5px);
+        }
+
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #6366f1;
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out both;
+            margin: 0 2px;
+        }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3 cursor-pointer" onclick="app.goHome()">
+                <i class="fa-solid fa-gamepad text-3xl text-indigo-500 neon-text"></i>
+                <h1 class="text-2xl font-black tracking-tight text-white">Arcade<span class="text-indigo-500">IL</span></h1>
+            </div>
+            <nav class="hidden md:flex gap-6 text-slate-300 font-medium">
+                <a href="#" onclick="app.goHome()" class="hover:text-indigo-400 transition">בית</a>
+                <a href="#" class="hover:text-indigo-400 transition">מובילים</a>
+                <a href="#" class="hover:text-indigo-400 transition">אודות</a>
+            </nav>
+            <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-full font-bold shadow-lg transition transform active:scale-95">
+                התחברות
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow container mx-auto px-4 py-8">
+        
+        <!-- View: Game Menu -->
+        <div id="view-menu" class="animate-fade-in">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl md:text-5xl font-black mb-4">בחר את המשחק שלך</h2>
+                <p class="text-slate-400 text-lg">אוסף המשחקים הטובים ביותר להעברת הזמן</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="games-grid">
+                <!-- Cards will be injected here by JS -->
+            </div>
+        </div>
+
+        <!-- View: Game Container -->
+        <div id="view-game" class="hidden flex flex-col items-center w-full max-w-4xl mx-auto">
+            <!-- Game Header -->
+            <div class="w-full flex flex-col md:flex-row justify-between items-center mb-6 bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700 gap-4">
+                <div class="flex items-center gap-4 w-full md:w-auto justify-between">
+                    <button onclick="app.goHome()" class="flex items-center gap-2 text-slate-300 hover:text-white transition">
+                        <i class="fa-solid fa-arrow-right"></i> <span class="hidden md:inline">תפריט</span>
+                    </button>
+                    <h2 id="current-game-title" class="text-xl font-bold text-indigo-400">שם המשחק</h2>
+                </div>
+                
+                <div class="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                    <!-- AI Feature Button -->
+                    <button onclick="app.generateBackstory()" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-1 rounded-full text-sm font-bold shadow hover:shadow-lg transition flex items-center gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> צור סיפור רקע
+                    </button>
+
+                    <div class="bg-slate-900 px-4 py-1 rounded-lg border border-slate-700 whitespace-nowrap">
+                        <span class="text-slate-400 text-sm">ניקוד:</span>
+                        <span id="score-display" class="text-xl font-bold text-white ml-2">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Story Box -->
+            <div id="ai-story-box" class="hidden w-full bg-slate-800/80 border border-purple-500/30 p-4 rounded-xl mb-4 text-center animate-fade-in relative overflow-hidden">
+                <div class="absolute top-0 right-0 p-2 opacity-10 text-purple-500"><i class="fa-solid fa-robot text-6xl"></i></div>
+                <h3 class="text-purple-400 font-bold text-sm mb-1 uppercase tracking-wider">✨ רקע שנוצר על ידי Gemini</h3>
+                <p id="ai-story-text" class="text-slate-200 text-lg leading-relaxed relative z-10"></p>
+                <button onclick="document.getElementById('ai-story-box').classList.add('hidden')" class="absolute top-2 left-2 text-slate-500 hover:text-white"><i class="fa-solid fa-times"></i></button>
+            </div>
+
+            <!-- Game Area -->
+            <div id="game-playground" class="w-full flex justify-center items-center bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 min-h-[400px] relative overflow-hidden">
+                
+                <!-- Dynamic Game Content injected here -->
+                <canvas id="game-canvas" width="400" height="400" class="hidden rounded shadow-lg max-w-full z-10"></canvas>
+                <div id="dom-game-container" class="w-full z-10"></div>
+
+                <!-- AI Game Over Overlay -->
+                <div id="ai-overlay" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+                    <h3 class="text-4xl font-black text-white mb-2">סיום משחק!</h3>
+                    <p class="text-2xl text-indigo-400 mb-6 font-bold">ניקוד סופי: <span id="final-score">0</span></p>
+                    
+                    <div class="bg-slate-900/80 p-4 rounded-xl border border-indigo-500/30 max-w-md w-full mb-6 min-h-[100px] flex flex-col justify-center items-center">
+                        <p class="text-xs text-indigo-400 font-bold mb-2 uppercase tracking-widest">✨ פרשנות Gemini AI</p>
+                        <div id="ai-comment-loader" class="typing-indicator hidden">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <p id="ai-comment-text" class="text-lg text-slate-200 italic"></p>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <button onclick="app.restartCurrentGame()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-full font-bold shadow-lg transition transform hover:scale-105">
+                            <i class="fa-solid fa-rotate-right ml-2"></i> שחק שוב
+                        </button>
+                        <button onclick="app.goHome()" class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-full font-bold shadow-lg transition">
+                            תפריט
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Mobile Controls (Only for Snake) -->
+            <div id="mobile-controls" class="hidden mt-6 grid grid-cols-3 gap-2 w-48">
+                <div></div>
+                <button class="bg-slate-700 active:bg-indigo-600 p-4 rounded-lg text-white" onclick="games.snake.handleInput('ArrowUp')"><i class="fa-solid fa-arrow-up"></i></button>
+                <div></div>
+                <button class="bg-slate-700 active:bg-indigo-600 p-4 rounded-lg text-white" onclick="games.snake.handleInput('ArrowRight')"><i class="fa-solid fa-arrow-right"></i></button>
+                <button class="bg-slate-700 active:bg-indigo-600 p-4 rounded-lg text-white" onclick="games.snake.handleInput('ArrowDown')"><i class="fa-solid fa-arrow-down"></i></button>
+                <button class="bg-slate-700 active:bg-indigo-600 p-4 rounded-lg text-white" onclick="games.snake.handleInput('ArrowLeft')"><i class="fa-solid fa-arrow-left"></i></button>
+            </div>
+
+            <!-- Instructions -->
+            <div id="game-instructions" class="mt-8 text-center text-slate-400 max-w-lg">
+                <p>השתמש במקלדת או במסך המגע כדי לשחק.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-8 mt-auto">
+        <div class="container mx-auto px-4 text-center">
+            <p class="text-slate-500">&copy; 2024 ArcadeIL. נבנה באמצעות טכנולוגיות WEB מתקדמות ו-Gemini AI.</p>
+        </div>
+    </footer>
+
+    <!-- LOGIC -->
+    <script>
+        // --- Gemini API Handler ---
+        const geminiAI = {
+            generate: async (prompt) => {
+                const apiKey = ""; // API Key provided by environment
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }]
+                        })
+                    });
+                    
+                    if (!response.ok) throw new Error('API Error');
+                    
+                    const data = await response.json();
+                    return data.candidates[0].content.parts[0].text;
+                } catch (error) {
+                    console.error("Gemini Error:", error);
+                    return "המוח הדיגיטלי שלי נח כרגע... נסה שוב אחר כך! 🤖";
+                }
+            }
+        };
+
+        // --- Game Definitions ---
+        const gameData = [
+            {
+                id: 'snake',
+                title: 'נחש הניאון',
+                description: 'אסוף את הנקודות ואל תתנגש בקירות! הקלאסיקה בעיצוב חדש.',
+                icon: 'fa-staff-snake',
+                color: 'text-green-400',
+                type: 'canvas'
+            },
+            {
+                id: 'memory',
+                title: 'זיכרון אימוג\'י',
+                description: 'בחן את הזיכרון שלך. מצא את כל הזוגות בזמן הקצר ביותר.',
+                icon: 'fa-brain',
+                color: 'text-pink-400',
+                type: 'dom'
+            },
+            {
+                id: 'clicker',
+                title: 'קליק מאסטר',
+                description: 'כמה מהר תוכל ללחוץ על המטרות? בדוק את האינסטינקטים שלך.',
+                icon: 'fa-bullseye',
+                color: 'text-red-400',
+                type: 'dom'
+            }
+        ];
+
+        // --- Core Application Logic ---
+        const app = {
+            activeGameId: null,
+            
+            init: () => {
+                app.renderMenu();
+            },
+
+            renderMenu: () => {
+                const grid = document.getElementById('games-grid');
+                grid.innerHTML = gameData.map(game => `
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 cursor-pointer card-hover relative overflow-hidden group" onclick="app.loadGame('${game.id}')">
+                        <div class="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-white/5 to-transparent rounded-bl-full -mr-4 -mt-4 transition group-hover:from-indigo-500/20"></div>
+                        <div class="flex items-center gap-4 mb-4">
+                            <div class="w-12 h-12 rounded-lg bg-slate-900 flex items-center justify-center border border-slate-700">
+                                <i class="fa-solid ${game.icon} ${game.color} text-2xl"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-white">${game.title}</h3>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-4 leading-relaxed">${game.description}</p>
+                        <div class="flex justify-between items-center mt-auto pt-4 border-t border-slate-700/50">
+                            <span class="text-xs font-bold bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded">פופולרי</span>
+                            <span class="text-indigo-400 text-sm font-bold group-hover:translate-x-[-5px] transition-transform">שחק עכשיו <i class="fa-solid fa-arrow-left mr-1"></i></span>
+                        </div>
+                    </div>
+                `).join('');
+            },
+
+            loadGame: (gameId) => {
+                app.activeGameId = gameId;
+                const gameInfo = gameData.find(g => g.id === gameId);
+                
+                // UI Switch
+                document.getElementById('view-menu').classList.add('hidden');
+                document.getElementById('view-game').classList.remove('hidden');
+                document.getElementById('current-game-title').innerText = gameInfo.title;
+                document.getElementById('score-display').innerText = '0';
+                
+                // Hide Overlays
+                document.getElementById('ai-overlay').classList.add('hidden');
+                document.getElementById('ai-story-box').classList.add('hidden');
+
+                // Cleanup previous
+                games.cleanup();
+
+                // Setup Env
+                const canvas = document.getElementById('game-canvas');
+                const domContainer = document.getElementById('dom-game-container');
+                const mobileControls = document.getElementById('mobile-controls');
+
+                if (gameInfo.type === 'canvas') {
+                    canvas.classList.remove('hidden');
+                    domContainer.innerHTML = '';
+                    mobileControls.classList.remove('hidden'); 
+                } else {
+                    canvas.classList.add('hidden');
+                    mobileControls.classList.add('hidden');
+                    domContainer.innerHTML = ''; 
+                }
+
+                // Start Game
+                if (games[gameId] && games[gameId].init) {
+                    games[gameId].init();
+                }
+            },
+
+            restartCurrentGame: () => {
+                document.getElementById('ai-overlay').classList.add('hidden');
+                games.cleanup();
+                if (app.activeGameId && games[app.activeGameId]) {
+                    games[app.activeGameId].init();
+                }
+            },
+
+            goHome: () => {
+                games.cleanup();
+                app.activeGameId = null;
+                document.getElementById('view-menu').classList.remove('hidden');
+                document.getElementById('view-game').classList.add('hidden');
+                document.getElementById('ai-overlay').classList.add('hidden');
+            },
+
+            // ✨ AI Feature 1: Backstory Generator
+            generateBackstory: async () => {
+                const gameInfo = gameData.find(g => g.id === app.activeGameId);
+                const storyBox = document.getElementById('ai-story-box');
+                const storyText = document.getElementById('ai-story-text');
+                
+                storyBox.classList.remove('hidden');
+                storyText.innerHTML = '<span class="typing-indicator"><span></span><span></span><span></span></span> טוען סיפור...';
+
+                const prompt = `כתוב סיפור רקע קצר, אפי, דרמטי ומצחיק מאוד (מקסימום 30 מילים) בעברית לשחקן שעומד לשחק במשחק "${gameInfo.title}". המטרה היא: ${gameInfo.description}. השתמש באימוג'י אחד.`;
+                
+                const story = await geminiAI.generate(prompt);
+                storyText.innerText = story;
+            },
+
+            // ✨ AI Feature 2: Game Over Commentary
+            showGameOver: async (score) => {
+                const gameInfo = gameData.find(g => g.id === app.activeGameId);
+                const overlay = document.getElementById('ai-overlay');
+                const finalScoreEl = document.getElementById('final-score');
+                const aiTextEl = document.getElementById('ai-comment-text');
+                const loader = document.getElementById('ai-comment-loader');
+
+                finalScoreEl.innerText = score;
+                overlay.classList.remove('hidden');
+                
+                // Clear previous and show loader
+                aiTextEl.innerText = '';
+                loader.classList.remove('hidden');
+
+                const prompt = `השחקן סיים את המשחק "${gameInfo.title}" עם ניקוד של ${score}. כתוב הערה קצרה (עד 15 מילים) בעברית על הביצועים שלו. תהיה ציני, סרקסטי או סופר-מתלהב (תלוי בניקוד).`;
+                
+                const commentary = await geminiAI.generate(prompt);
+                
+                loader.classList.add('hidden');
+                aiTextEl.innerText = commentary;
+            }
+        };
+
+        // --- Games Implementations ---
+        const games = {
+            intervalId: null,
+            animationId: null,
+
+            cleanup: () => {
+                if (games.intervalId) clearInterval(games.intervalId);
+                if (games.animationId) cancelAnimationFrame(games.animationId);
+                document.onkeydown = null;
+            },
+
+            // --- SNAKE GAME ---
+            snake: {
+                canvas: null,
+                ctx: null,
+                grid: 20,
+                count: 0,
+                snakeArr: [],
+                apple: {},
+                dx: 0,
+                dy: 0,
+                score: 0,
+                gameOver: false,
+
+                init: () => {
+                    const self = games.snake;
+                    self.canvas = document.getElementById('game-canvas');
+                    self.ctx = self.canvas.getContext('2d');
+                    
+                    self.snakeArr = [{x: 160, y: 160}, {x: 140, y: 160}, {x: 120, y: 160}];
+                    self.apple = {x: 320, y: 320};
+                    self.dx = self.grid;
+                    self.dy = 0;
+                    self.score = 0;
+                    self.gameOver = false;
+                    self.count = 0;
+                    document.getElementById('score-display').innerText = '0';
+
+                    document.onkeydown = (e) => self.handleInput(e.code);
+                    self.loop();
+                },
+
+                handleInput: (code) => {
+                    const self = games.snake;
+                    if (self.gameOver) return;
+
+                    if (code === 'ArrowLeft' && self.dx === 0) { self.dx = -self.grid; self.dy = 0; }
+                    else if (code === 'ArrowUp' && self.dy === 0) { self.dy = -self.grid; self.dx = 0; }
+                    else if (code === 'ArrowRight' && self.dx === 0) { self.dx = self.grid; self.dy = 0; }
+                    else if (code === 'ArrowDown' && self.dy === 0) { self.dy = self.grid; self.dx = 0; }
+                },
+
+                loop: () => {
+                    const self = games.snake;
+                    if (!app.activeGameId || app.activeGameId !== 'snake') return;
+
+                    games.animationId = requestAnimationFrame(self.loop);
+
+                    if (++self.count < 6) return;
+                    self.count = 0;
+
+                    if (self.gameOver) return; // Stop updates, AI overlay handles UI
+
+                    self.update();
+                    self.draw();
+                },
+
+                update: () => {
+                    const self = games.snake;
+                    const head = { x: self.snakeArr[0].x + self.dx, y: self.snakeArr[0].y + self.dy };
+
+                    if (head.x < 0 || head.x >= self.canvas.width || head.y < 0 || head.y >= self.canvas.height) {
+                        self.triggerGameOver();
+                        return;
+                    }
+
+                    for (let i = 0; i < self.snakeArr.length; i++) {
+                        if (head.x === self.snakeArr[i].x && head.y === self.snakeArr[i].y) {
+                            self.triggerGameOver();
+                            return;
+                        }
+                    }
+
+                    self.snakeArr.unshift(head);
+
+                    if (head.x === self.apple.x && head.y === self.apple.y) {
+                        self.score += 10;
+                        document.getElementById('score-display').innerText = self.score;
+                        self.apple.x = Math.floor(Math.random() * (self.canvas.width / self.grid)) * self.grid;
+                        self.apple.y = Math.floor(Math.random() * (self.canvas.height / self.grid)) * self.grid;
+                    } else {
+                        self.snakeArr.pop();
+                    }
+                },
+
+                triggerGameOver: () => {
+                    games.snake.gameOver = true;
+                    app.showGameOver(games.snake.score);
+                },
+
+                draw: () => {
+                    const self = games.snake;
+                    self.ctx.fillStyle = '#0f172a';
+                    self.ctx.fillRect(0, 0, self.canvas.width, self.canvas.height);
+
+                    self.ctx.fillStyle = '#ef4444';
+                    self.ctx.shadowBlur = 10;
+                    self.ctx.shadowColor = '#ef4444';
+                    self.ctx.fillRect(self.apple.x, self.apple.y, self.grid - 1, self.grid - 1);
+                    self.ctx.shadowBlur = 0;
+
+                    self.ctx.fillStyle = '#10b981';
+                    self.snakeArr.forEach((cell, index) => {
+                        if (index === 0) self.ctx.fillStyle = '#34d399';
+                        else self.ctx.fillStyle = '#10b981';
+                        self.ctx.fillRect(cell.x, cell.y, self.grid - 1, self.grid - 1);
+                    });
+                }
+            },
+
+            // --- MEMORY GAME ---
+            memory: {
+                cards: [],
+                flippedCards: [],
+                matchedPairs: 0,
+                emojis: ['🍕', '🚀', '🐱', '🌵', '🎈', '🎸', '💎', '🍦'],
+
+                init: () => {
+                    const self = games.memory;
+                    self.matchedPairs = 0;
+                    self.flippedCards = [];
+                    document.getElementById('score-display').innerText = '0';
+                    
+                    const deck = [...self.emojis, ...self.emojis];
+                    deck.sort(() => 0.5 - Math.random());
+
+                    const container = document.getElementById('dom-game-container');
+                    
+                    let html = '<div class="memory-grid">';
+                    deck.forEach((emoji, index) => {
+                        html += `
+                            <div class="memory-card" data-index="${index}" data-emoji="${emoji}" onclick="games.memory.flipCard(this)">
+                                <div class="hidden text-4xl pointer-events-none">${emoji}</div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                },
+
+                flipCard: (card) => {
+                    const self = games.memory;
+                    if (card.classList.contains('flipped') || card.classList.contains('matched')) return;
+                    if (self.flippedCards.length >= 2) return;
+
+                    card.classList.add('flipped');
+                    card.querySelector('div').classList.remove('hidden');
+                    card.style.transform = "rotateY(180deg)";
+
+                    self.flippedCards.push(card);
+
+                    if (self.flippedCards.length === 2) {
+                        self.checkMatch();
+                    }
+                },
+
+                checkMatch: () => {
+                    const self = games.memory;
+                    const [card1, card2] = self.flippedCards;
+                    const emoji1 = card1.getAttribute('data-emoji');
+                    const emoji2 = card2.getAttribute('data-emoji');
+
+                    if (emoji1 === emoji2) {
+                        card1.classList.add('matched');
+                        card2.classList.add('matched');
+                        self.matchedPairs++;
+                        self.flippedCards = [];
+                        
+                        document.getElementById('score-display').innerText = self.matchedPairs * 10;
+
+                        if (self.matchedPairs === self.emojis.length) {
+                            setTimeout(() => app.showGameOver(self.matchedPairs * 10), 500);
+                        }
+                    } else {
+                        setTimeout(() => {
+                            card1.classList.remove('flipped');
+                            card1.querySelector('div').classList.add('hidden');
+                            card1.style.transform = "";
+                            
+                            card2.classList.remove('flipped');
+                            card2.querySelector('div').classList.add('hidden');
+                            card2.style.transform = "";
+                            
+                            self.flippedCards = [];
+                        }, 1000);
+                    }
+                }
+            },
+
+            // --- CLICK MASTER ---
+            clicker: {
+                score: 0,
+                timeLeft: 30,
+                activeTarget: null,
+
+                init: () => {
+                    const self = games.clicker;
+                    self.score = 0;
+                    self.timeLeft = 30;
+                    document.getElementById('score-display').innerText = 0;
+
+                    const container = document.getElementById('dom-game-container');
+                    container.innerHTML = `
+                        <div class="relative w-full h-[350px] bg-slate-900 rounded-xl overflow-hidden cursor-crosshair border border-slate-700" id="clicker-area">
+                            <div class="absolute top-2 left-2 text-white bg-red-600 px-2 rounded">זמן: <span id="clicker-timer">30</span></div>
+                            <div id="target" class="absolute w-12 h-12 bg-red-500 rounded-full shadow-[0_0_15px_red] flex items-center justify-center cursor-pointer transition-transform active:scale-90" style="top: 50%; left: 50%;" onmousedown="games.clicker.hit()">
+                                <div class="w-8 h-8 bg-white rounded-full opacity-30"></div>
+                            </div>
+                        </div>
+                        <div class="text-center mt-4 text-slate-400">לחץ על העיגול האדום כמה שיותר מהר!</div>
+                    `;
+
+                    self.moveTarget();
+                    
+                    games.intervalId = setInterval(() => {
+                        self.timeLeft--;
+                        const timerEl = document.getElementById('clicker-timer');
+                        if(timerEl) timerEl.innerText = self.timeLeft;
+
+                        if (self.timeLeft <= 0) {
+                            self.endGame();
+                        }
+                    }, 1000);
+                },
+
+                hit: () => {
+                    const self = games.clicker;
+                    if (self.timeLeft <= 0) return;
+                    
+                    self.score++;
+                    document.getElementById('score-display').innerText = self.score;
+                    self.moveTarget();
+                },
+
+                moveTarget: () => {
+                    const area = document.getElementById('clicker-area');
+                    const target = document.getElementById('target');
+                    if (!area || !target) return;
+
+                    const maxX = area.clientWidth - 60;
+                    const maxY = area.clientHeight - 60;
+
+                    const randomX = Math.floor(Math.random() * maxX);
+                    const randomY = Math.floor(Math.random() * maxY);
+
+                    target.style.left = randomX + 'px';
+                    target.style.top = randomY + 'px';
+                    
+                    const colors = ['#ef4444', '#f59e0b', '#8b5cf6', '#ec4899'];
+                    target.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                    target.style.boxShadow = `0 0 15px ${target.style.backgroundColor}`;
+                },
+
+                endGame: () => {
+                    const self = games.clicker;
+                    clearInterval(games.intervalId);
+                    app.showGameOver(self.score);
+                }
+            }
+        };
+
+        window.addEventListener('load', app.init);
+
+    </script>
+</body>
+</html>
