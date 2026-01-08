@@ -68,6 +68,17 @@
             image-rendering: pixelated; /* Retro feel */
         }
 
+        body.is-fullscreen #view-game {
+            max-width: none;
+            width: 100%;
+        }
+
+        body.is-fullscreen #game-playground {
+            min-height: calc(100vh - 220px);
+            height: calc(100vh - 220px);
+            max-height: none;
+        }
+
         /* Memory Game Grid */
         .memory-grid {
             display: grid;
@@ -330,6 +341,7 @@
         const app = {
             activeGameId: null,
             fullscreenTarget: null,
+            canvasSize: { width: 0, height: 0, ratio: 1 },
             
             init: () => {
                 app.renderMenu();
@@ -364,11 +376,19 @@
                 if (!canvas || !playground) return;
 
                 const rect = playground.getBoundingClientRect();
-                const targetSize = Math.min(rect.width - 32, rect.height - 32);
-                const size = Math.max(320, Math.floor(targetSize));
+                const width = Math.max(320, Math.floor(rect.width - 32));
+                const height = Math.max(320, Math.floor(rect.height - 32));
+                const ratio = window.devicePixelRatio || 1;
 
-                canvas.width = size;
-                canvas.height = size;
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
+                canvas.width = Math.floor(width * ratio);
+                canvas.height = Math.floor(height * ratio);
+                app.canvasSize = { width, height, ratio };
+
+                if (app.activeGameId && games[app.activeGameId] && games[app.activeGameId].syncCanvas) {
+                    games[app.activeGameId].syncCanvas();
+                }
             },
 
             loadGame: (gameId) => {
@@ -470,6 +490,8 @@
                 const button = document.getElementById('fullscreen-button');
                 if (!button) return;
 
+                document.body.classList.toggle('is-fullscreen', !!document.fullscreenElement);
+
                 if (document.fullscreenElement) {
                     button.innerHTML = '<i class="fa-solid fa-compress"></i> יציאה ממסך מלא';
                 } else {
@@ -536,13 +558,64 @@
                 keys: {},
                 platforms: [],
                 diamonds: [],
+                relics: [],
+                hazards: [],
                 enemies: [],
+                clouds: [],
                 cameraX: 0,
                 gravity: 0.6,
                 friction: 0.8,
                 score: 0,
                 gameOver: false,
                 lastPlatformX: 0,
+                levelIndex: 0,
+                levelDistance: 0,
+                lives: 3,
+                invulnerableUntil: 0,
+                frame: 0,
+                viewport: { width: 800, height: 450, ratio: 1 },
+                levelData: [
+                    {
+                        name: 'נמל השחר',
+                        skyTop: '#7dd3fc',
+                        skyBottom: '#fef3c7',
+                        mountain: '#60a5fa',
+                        platform: '#854d0e',
+                        grass: '#22c55e',
+                        hazard: '#ef4444',
+                        fog: 'rgba(255,255,255,0.1)'
+                    },
+                    {
+                        name: 'יערות הברקת',
+                        skyTop: '#34d399',
+                        skyBottom: '#0f766e',
+                        mountain: '#15803d',
+                        platform: '#3f6212',
+                        grass: '#65a30d',
+                        hazard: '#fb7185',
+                        fog: 'rgba(20,83,45,0.25)'
+                    },
+                    {
+                        name: 'מקדש הלהבה',
+                        skyTop: '#f97316',
+                        skyBottom: '#7c2d12',
+                        mountain: '#c2410c',
+                        platform: '#78350f',
+                        grass: '#f59e0b',
+                        hazard: '#facc15',
+                        fog: 'rgba(124,45,18,0.3)'
+                    },
+                    {
+                        name: 'מצודת הלילה',
+                        skyTop: '#312e81',
+                        skyBottom: '#0f172a',
+                        mountain: '#4338ca',
+                        platform: '#1f2937',
+                        grass: '#6366f1',
+                        hazard: '#22d3ee',
+                        fog: 'rgba(30,41,59,0.35)'
+                    }
+                ],
 
                 init: () => {
                     const self = games.adventure;
@@ -557,7 +630,16 @@
                     self.keys = {};
                     self.platforms = [];
                     self.diamonds = [];
+                    self.relics = [];
+                    self.hazards = [];
                     self.enemies = [];
+                    self.clouds = [];
+                    self.levelIndex = 0;
+                    self.levelDistance = 0;
+                    self.lives = 3;
+                    self.invulnerableUntil = 0;
+                    self.frame = 0;
+                    self.syncCanvas();
                     
                     // Player setup
                     self.player = {
@@ -569,12 +651,17 @@
                         velX: 0,
                         velY: 0,
                         jumping: false,
-                        grounded: false
+                        grounded: false,
+                        animFrame: 0,
+                        animTick: 0,
+                        facing: 1
                     };
 
                     // Initial ground
-                    self.generatePlatform(0, 350, 600); // Start platform
-                    self.lastPlatformX = 600;
+                    const startY = self.viewport.height - 90;
+                    self.generatePlatform(0, startY, 700); // Start platform
+                    self.lastPlatformX = 700;
+                    self.createClouds();
 
                     // Event Listeners
                     document.onkeydown = (e) => {
@@ -589,6 +676,15 @@
                     };
 
                     self.loop();
+                },
+
+                syncCanvas: () => {
+                    const self = games.adventure;
+                    const { width, height, ratio } = app.canvasSize;
+                    self.viewport = { width, height, ratio };
+                    if (self.ctx) {
+                        self.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+                    }
                 },
 
                 handleInput: (key) => {
@@ -615,7 +711,18 @@
                 // Procedural Generation
                 generatePlatform: (x, y, w) => {
                     const self = games.adventure;
-                    self.platforms.push({ x, y, width: w, height: 30 });
+                    const isMoving = Math.random() > 0.75;
+                    const platform = {
+                        x,
+                        y,
+                        width: w,
+                        height: 28,
+                        moving: isMoving,
+                        baseX: x,
+                        range: isMoving ? 40 + Math.random() * 60 : 0,
+                        speed: isMoving ? (Math.random() > 0.5 ? 0.6 : -0.6) : 0
+                    };
+                    self.platforms.push(platform);
                     
                     // Add items randomly
                     if (Math.random() > 0.3) {
@@ -628,6 +735,25 @@
                         });
                     }
 
+                    if (Math.random() > 0.75) {
+                        self.relics.push({
+                            x: x + Math.random() * (w - 40),
+                            y: y - 55,
+                            width: 26,
+                            height: 26,
+                            collected: false
+                        });
+                    }
+
+                    if (Math.random() > 0.6 && w > 120) {
+                        self.hazards.push({
+                            x: x + 30 + Math.random() * (w - 60),
+                            y: y - 14,
+                            width: 24,
+                            height: 14
+                        });
+                    }
+
                     // Add enemy
                     if (Math.random() > 0.6 && w > 100) {
                         self.enemies.push({
@@ -637,23 +763,45 @@
                             height: 24,
                             speed: 1,
                             minX: x,
-                            maxX: x + w
+                            maxX: x + w,
+                            type: Math.random() > 0.5 ? 'skull' : 'bat',
+                            floatPhase: Math.random() * Math.PI * 2
                         });
                     }
+                },
+
+                createClouds: () => {
+                    const self = games.adventure;
+                    const cloudCount = 10;
+                    self.clouds = Array.from({ length: cloudCount }, (_, index) => ({
+                        x: index * 180 + Math.random() * 80,
+                        y: 40 + Math.random() * 120,
+                        size: 30 + Math.random() * 30,
+                        speed: 0.2 + Math.random() * 0.3
+                    }));
+                },
+
+                updateLevel: () => {
+                    const self = games.adventure;
+                    const distance = Math.floor(self.player.x / 1400);
+                    self.levelIndex = Math.min(distance, self.levelData.length - 1);
+                    self.levelDistance = distance;
                 },
 
                 spawnWorld: () => {
                     const self = games.adventure;
                     // Keep generating platforms ahead of player
-                    while (self.lastPlatformX < self.player.x + 800) {
-                        const gap = 60 + Math.random() * 80; // Random gap
-                        const yChange = (Math.random() * 100) - 50; // Height difference
-                        let y = 350 + yChange;
-                        if (y > 380) y = 380;
-                        if (y < 200) y = 200;
+                    while (self.lastPlatformX < self.player.x + 1000) {
+                        const gap = 70 + Math.random() * 120; // Random gap
+                        const yChange = (Math.random() * 140) - 70; // Height difference
+                        let y = (self.viewport.height - 90) + yChange;
+                        const maxY = self.viewport.height - 70;
+                        const minY = self.viewport.height - 260;
+                        if (y > maxY) y = maxY;
+                        if (y < minY) y = minY;
                         
-                        const w = 80 + Math.random() * 200;
-                        
+                        const w = 90 + Math.random() * 220;
+
                         self.generatePlatform(self.lastPlatformX + gap, y, w);
                         self.lastPlatformX += (gap + w);
                     }
@@ -661,20 +809,26 @@
                     // Clean up old objects to save memory
                     self.platforms = self.platforms.filter(p => p.x + p.width > self.cameraX - 100);
                     self.diamonds = self.diamonds.filter(d => d.x > self.cameraX - 100);
+                    self.relics = self.relics.filter(r => r.x > self.cameraX - 100);
+                    self.hazards = self.hazards.filter(h => h.x > self.cameraX - 100);
                     self.enemies = self.enemies.filter(e => e.x > self.cameraX - 100);
                 },
 
                 update: () => {
                     const self = games.adventure;
                     const p = self.player;
+                    self.frame++;
+                    self.updateLevel();
 
                     // Movement Logic (Desktop Keys)
                     // Mobile buttons trigger velocity directly in handleInput, but keys need continuous check
                     if (self.keys['ArrowRight']) {
                         if (p.velX < p.speed) p.velX++;
+                        p.facing = 1;
                     }
                     if (self.keys['ArrowLeft']) {
                         if (p.velX > -p.speed) p.velX--;
+                        p.facing = -1;
                     }
 
                     // Physics
@@ -689,6 +843,12 @@
 
                     // Platform Collisions
                     for (let plat of self.platforms) {
+                        if (plat.moving) {
+                            plat.x += plat.speed;
+                            if (Math.abs(plat.x - plat.baseX) > plat.range) {
+                                plat.speed *= -1;
+                            }
+                        }
                         // Check if inside platform horizontally
                         if (p.x < plat.x + plat.width && p.x + p.width > plat.x) {
                             // Check vertical (landing on top)
@@ -697,6 +857,9 @@
                                 p.jumping = false;
                                 p.y = plat.y - p.height;
                                 p.velY = 0;
+                                if (plat.moving) {
+                                    p.x += plat.speed;
+                                }
                             }
                         }
                     }
@@ -713,22 +876,51 @@
                         }
                     }
 
+                    for (let r of self.relics) {
+                        if (!r.collected) {
+                            if (p.x < r.x + r.width && p.x + p.width > r.x &&
+                                p.y < r.y + r.height && p.y + p.height > r.y) {
+                                r.collected = true;
+                                self.score += 150;
+                                self.lives = Math.min(5, self.lives + 1);
+                                document.getElementById('score-display').innerText = self.score;
+                            }
+                        }
+                    }
+
+                    // Hazard collision
+                    if (self.invulnerableUntil < self.frame) {
+                        for (let h of self.hazards) {
+                            if (p.x < h.x + h.width && p.x + p.width > h.x &&
+                                p.y < h.y + h.height && p.y + p.height > h.y) {
+                                self.takeDamage();
+                                break;
+                            }
+                        }
+                    }
+
                     // Enemy Collision
                     for (let e of self.enemies) {
                         // Move Enemy
-                        e.x += e.speed;
+                        if (e.type === 'bat') {
+                            e.x += e.speed * 1.2;
+                            e.floatPhase += 0.05;
+                            e.y += Math.sin(e.floatPhase) * 0.6;
+                        } else {
+                            e.x += e.speed;
+                        }
                         if (e.x > e.maxX || e.x < e.minX) e.speed *= -1;
 
                         // Check collision
                         if (p.x < e.x + e.width - 5 && p.x + p.width > e.x + 5 &&
                             p.y < e.y + e.height - 5 && p.y + p.height > e.y + 5) {
-                            self.gameOver = true;
+                            self.takeDamage();
                         }
                     }
 
                     // Death by fall
-                    if (p.y > self.canvas.height) {
-                        self.gameOver = true;
+                    if (p.y > self.viewport.height + 100) {
+                        self.takeDamage(true);
                     }
 
                     // Camera follow
@@ -740,33 +932,78 @@
                     if (self.gameOver) {
                         app.showGameOver(self.score);
                     }
+
+                    // Animate clouds
+                    for (let cloud of self.clouds) {
+                        cloud.x += cloud.speed;
+                        if (cloud.x - self.cameraX > self.viewport.width + 120) {
+                            cloud.x = self.cameraX - 120;
+                            cloud.y = 40 + Math.random() * 140;
+                            cloud.size = 30 + Math.random() * 30;
+                            cloud.speed = 0.2 + Math.random() * 0.4;
+                        }
+                    }
+
+                    if (Math.abs(p.velX) > 0.2 && p.grounded) {
+                        p.animTick++;
+                        if (p.animTick > 6) {
+                            p.animFrame = (p.animFrame + 1) % 2;
+                            p.animTick = 0;
+                        }
+                    } else {
+                        p.animFrame = 0;
+                    }
                 },
 
                 draw: () => {
                     const self = games.adventure;
                     const ctx = self.ctx;
                     const cam = self.cameraX;
+                    const level = self.levelData[self.levelIndex];
 
                     // Background (Sky)
-                    ctx.fillStyle = '#60a5fa'; // Blue sky
-                    ctx.fillRect(0, 0, self.canvas.width, self.canvas.height);
+                    const sky = ctx.createLinearGradient(0, 0, 0, self.viewport.height);
+                    sky.addColorStop(0, level.skyTop);
+                    sky.addColorStop(1, level.skyBottom);
+                    ctx.fillStyle = sky;
+                    ctx.fillRect(0, 0, self.viewport.width, self.viewport.height);
                     
                     // Distant mountains (Parallax fake)
-                    ctx.fillStyle = '#3b82f6';
+                    ctx.fillStyle = level.mountain;
                     ctx.beginPath();
-                    ctx.moveTo(0, 400);
-                    ctx.lineTo(100 - cam * 0.2, 100);
-                    ctx.lineTo(300 - cam * 0.2, 400);
+                    ctx.moveTo(0, self.viewport.height);
+                    ctx.lineTo(120 - cam * 0.2, self.viewport.height - 280);
+                    ctx.lineTo(340 - cam * 0.2, self.viewport.height);
                     ctx.fill();
 
+                    ctx.beginPath();
+                    ctx.moveTo(200, self.viewport.height);
+                    ctx.lineTo(420 - cam * 0.15, self.viewport.height - 240);
+                    ctx.lineTo(640 - cam * 0.15, self.viewport.height);
+                    ctx.fill();
+
+                    // Clouds
+                    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                    for (let cloud of self.clouds) {
+                        const cx = cloud.x - cam * 0.05;
+                        ctx.beginPath();
+                        ctx.ellipse(cx, cloud.y, cloud.size, cloud.size * 0.6, 0, 0, Math.PI * 2);
+                        ctx.ellipse(cx + cloud.size * 0.6, cloud.y + 8, cloud.size * 0.7, cloud.size * 0.5, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Atmospheric fog
+                    ctx.fillStyle = level.fog;
+                    ctx.fillRect(0, 0, self.viewport.width, self.viewport.height);
+
                     // Platforms
-                    ctx.fillStyle = '#854d0e'; // Brown dirt
+                    ctx.fillStyle = level.platform; // Brown dirt
                     for (let plat of self.platforms) {
                         ctx.fillRect(plat.x - cam, plat.y, plat.width, plat.height);
                         // Grass top
-                        ctx.fillStyle = '#22c55e';
+                        ctx.fillStyle = level.grass;
                         ctx.fillRect(plat.x - cam, plat.y, plat.width, 5);
-                        ctx.fillStyle = '#854d0e'; // Reset
+                        ctx.fillStyle = level.platform; // Reset
                     }
 
                     // Diamonds (Purple Dave Style)
@@ -785,37 +1022,106 @@
                         }
                     }
 
+                    // Relics (Gold)
+                    for (let r of self.relics) {
+                        if (!r.collected) {
+                            ctx.fillStyle = '#facc15';
+                            ctx.fillRect(r.x - cam, r.y, r.width, r.height);
+                            ctx.fillStyle = '#fef3c7';
+                            ctx.fillRect(r.x - cam + 6, r.y + 6, 8, 8);
+                        }
+                    }
+
+                    // Hazards (Spikes)
+                    ctx.fillStyle = level.hazard;
+                    for (let h of self.hazards) {
+                        ctx.beginPath();
+                        ctx.moveTo(h.x - cam, h.y + h.height);
+                        ctx.lineTo(h.x - cam + h.width / 2, h.y);
+                        ctx.lineTo(h.x - cam + h.width, h.y + h.height);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+
                     // Enemies (Skulls)
                     for (let e of self.enemies) {
-                        ctx.fillStyle = '#fff';
-                        ctx.beginPath();
                         const ex = e.x - cam;
-                        ctx.arc(ex + 12, e.y + 10, 10, 0, Math.PI * 2);
-                        ctx.fill();
-                        // Eyes
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(ex + 8, e.y + 6, 3, 3);
-                        ctx.fillRect(ex + 14, e.y + 6, 3, 3);
+                        if (e.type === 'bat') {
+                            ctx.fillStyle = '#1f2937';
+                            ctx.beginPath();
+                            ctx.arc(ex + 12, e.y + 12, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#f43f5e';
+                            ctx.beginPath();
+                            ctx.moveTo(ex + 2, e.y + 12);
+                            ctx.lineTo(ex + 12, e.y + 2);
+                            ctx.lineTo(ex + 22, e.y + 12);
+                            ctx.fill();
+                        } else {
+                            ctx.fillStyle = '#fff';
+                            ctx.beginPath();
+                            ctx.arc(ex + 12, e.y + 10, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            // Eyes
+                            ctx.fillStyle = '#000';
+                            ctx.fillRect(ex + 8, e.y + 6, 3, 3);
+                            ctx.fillRect(ex + 14, e.y + 6, 3, 3);
+                        }
                     }
 
                     // Player (Captain Dave - Red Hat, Blue Body)
                     const px = self.player.x - cam;
                     const py = self.player.y;
-                    
-                    // Body
-                    ctx.fillStyle = '#2563eb'; 
-                    ctx.fillRect(px, py + 10, 24, 14);
-                    // Head
-                    ctx.fillStyle = '#fca5a5'; // Skin
-                    ctx.fillRect(px + 4, py, 16, 12);
-                    // Hat (Pirate/Captain style)
-                    ctx.fillStyle = '#dc2626'; // Red
-                    ctx.fillRect(px, py - 4, 24, 6); // Brim
-                    ctx.fillRect(px + 4, py - 10, 16, 8); // Top
-                    // Feather
-                    ctx.fillStyle = '#fbbf24';
-                    ctx.fillRect(px + 16, py - 14, 4, 6);
+                    const blink = self.invulnerableUntil > self.frame && self.frame % 10 < 5;
 
+                    // HUD
+                    ctx.fillStyle = 'rgba(15,23,42,0.6)';
+                    ctx.fillRect(12, 12, 150, 46);
+                    ctx.fillStyle = '#facc15';
+                    ctx.font = '14px Heebo, sans-serif';
+                    ctx.fillText(`שלב: ${level.name}`, 20, 30);
+                    ctx.fillStyle = '#f87171';
+                    ctx.fillText(`חיים: ${self.lives}`, 20, 50);
+
+                    if (!blink) {
+                        // Body
+                        ctx.fillStyle = '#2563eb'; 
+                        const stride = self.player.animFrame === 1 ? 2 : 0;
+                        ctx.fillRect(px, py + 10, 24, 14);
+                        // Legs
+                        ctx.fillStyle = '#1d4ed8';
+                        ctx.fillRect(px + 4, py + 22, 6, 6 + stride);
+                        ctx.fillRect(px + 14, py + 22, 6, 6 - stride);
+                        // Head
+                        ctx.fillStyle = '#fca5a5'; // Skin
+                        ctx.fillRect(px + 4, py, 16, 12);
+                        // Hat (Pirate/Captain style)
+                        ctx.fillStyle = '#dc2626'; // Red
+                        ctx.fillRect(px, py - 4, 24, 6); // Brim
+                        ctx.fillRect(px + 4, py - 10, 16, 8); // Top
+                        // Feather
+                        ctx.fillStyle = '#fbbf24';
+                        ctx.fillRect(px + 16, py - 14, 4, 6);
+                    }
+
+                },
+
+                takeDamage: (hard = false) => {
+                    const self = games.adventure;
+                    if (self.invulnerableUntil > self.frame) return;
+                    self.lives -= 1;
+                    self.invulnerableUntil = self.frame + 60;
+                    if (hard) {
+                        self.player.velY = -8;
+                    }
+                    if (self.lives <= 0) {
+                        self.gameOver = true;
+                    } else {
+                        self.player.x = Math.max(self.cameraX + 150, self.player.x - 60);
+                        self.player.y = self.viewport.height - 140;
+                        self.player.velX = 0;
+                        self.player.velY = 0;
+                    }
                 },
 
                 loop: () => {
@@ -841,14 +1147,19 @@
                 dy: 0,
                 score: 0,
                 gameOver: false,
+                viewport: { width: 800, height: 450, ratio: 1 },
 
                 init: () => {
                     const self = games.snake;
                     self.canvas = document.getElementById('game-canvas');
                     self.ctx = self.canvas.getContext('2d');
-                    
-                    self.snakeArr = [{x: 160, y: 160}, {x: 140, y: 160}, {x: 120, y: 160}];
-                    self.apple = {x: 320, y: 320};
+                    self.syncCanvas();
+
+                    const startX = Math.floor((self.viewport.width / 2) / self.grid) * self.grid;
+                    const startY = Math.floor((self.viewport.height / 2) / self.grid) * self.grid;
+
+                    self.snakeArr = [{x: startX, y: startY}, {x: startX - self.grid, y: startY}, {x: startX - (self.grid * 2), y: startY}];
+                    self.apple = {x: Math.floor(self.viewport.width / 3 / self.grid) * self.grid, y: Math.floor(self.viewport.height / 3 / self.grid) * self.grid};
                     self.dx = self.grid;
                     self.dy = 0;
                     self.score = 0;
@@ -858,6 +1169,15 @@
 
                     document.onkeydown = (e) => self.handleInput(e.code);
                     self.loop();
+                },
+
+                syncCanvas: () => {
+                    const self = games.snake;
+                    const { width, height, ratio } = app.canvasSize;
+                    self.viewport = { width, height, ratio };
+                    if (self.ctx) {
+                        self.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+                    }
                 },
 
                 handleInput: (code) => {
@@ -889,7 +1209,7 @@
                     const self = games.snake;
                     const head = { x: self.snakeArr[0].x + self.dx, y: self.snakeArr[0].y + self.dy };
 
-                    if (head.x < 0 || head.x >= self.canvas.width || head.y < 0 || head.y >= self.canvas.height) {
+                    if (head.x < 0 || head.x >= self.viewport.width || head.y < 0 || head.y >= self.viewport.height) {
                         self.triggerGameOver();
                         return;
                     }
@@ -906,8 +1226,8 @@
                     if (head.x === self.apple.x && head.y === self.apple.y) {
                         self.score += 10;
                         document.getElementById('score-display').innerText = self.score;
-                        self.apple.x = Math.floor(Math.random() * (self.canvas.width / self.grid)) * self.grid;
-                        self.apple.y = Math.floor(Math.random() * (self.canvas.height / self.grid)) * self.grid;
+                        self.apple.x = Math.floor(Math.random() * (self.viewport.width / self.grid)) * self.grid;
+                        self.apple.y = Math.floor(Math.random() * (self.viewport.height / self.grid)) * self.grid;
                     } else {
                         self.snakeArr.pop();
                     }
@@ -921,7 +1241,7 @@
                 draw: () => {
                     const self = games.snake;
                     self.ctx.fillStyle = '#0f172a';
-                    self.ctx.fillRect(0, 0, self.canvas.width, self.canvas.height);
+                    self.ctx.fillRect(0, 0, self.viewport.width, self.viewport.height);
 
                     self.ctx.fillStyle = '#ef4444';
                     self.ctx.shadowBlur = 10;
